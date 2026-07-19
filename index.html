@@ -143,7 +143,7 @@ async function resolveModel(){
   if(data.error) throw new Error(data.error.message||"model list failed");
   const models=(data.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent"))
     .map(m=>m.name.replace("models/",""))
-    .filter(n=>!/embed|image|tts|audio|live|thinking|exp/i.test(n));
+    .filter(n=>!/embed|image|tts|audio|live|thinking|exp|research|interaction|robotics|computer|aqa|learnlm|gemma/i.test(n));
   // prefer newest flash, then flash-lite, then pro, then anything
   const score=n=>{
     const ver=parseFloat((n.match(/(\d+(\.\d+)?)/)||[0])[1])||0;
@@ -154,8 +154,19 @@ async function resolveModel(){
   };
   models.sort((a,b)=>score(b)-score(a));
   if(!models.length) throw new Error("no usable models on this key");
-  D.model=models[0]; D.modelCheckedAt=Date.now(); await save();
-  return D.model;
+  // verify candidates actually answer, walk down the list
+  let lastErr="";
+  for(const cand of models.slice(0,6)){
+    try{
+      const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+cand+":generateContent?key="+encodeURIComponent(D.apiKey),{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({contents:[{parts:[{text:"Reply with exactly: OK"}]}],generationConfig:{maxOutputTokens:10}})});
+      const j=await r.json();
+      if(!j.error){ D.model=cand; D.modelCheckedAt=Date.now(); await save(); return cand; }
+      lastErr=j.error.message||"";
+    }catch(e){ lastErr=String(e.message||e); }
+  }
+  throw new Error("no working model found — last error: "+lastErr);
 }
 
 async function callClaude(prompt, maxTokens=1000){
@@ -528,7 +539,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v5 · Gemini auto-model)…<br>";
+  out.innerHTML = "Running diagnostics (app v6 · verified auto-model)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Finding an available model on your key…");
