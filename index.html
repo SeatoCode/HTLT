@@ -200,19 +200,23 @@ USER'S SAVED FOOD LIBRARY (prefer these exact macros when a food matches, tag "L
 ${libSummary}
 
 Rules:
-- Lifts: one object per set-group. Fields: type:"lift", exercise (canonical name, e.g. "Squat", "Leg Extension"), weightKg (number), reps (number), sets (number, default 1), warmup (true/false). "100kg squat for 3" = 1 set of 3 unless sets stated. Tag WORK or WARMUP.
-- Foods: type:"food", name, serving (text), cal, p, c, f (grams, numbers). Estimate for cooked weights unless stated raw. Use library match if close (tag LIBRARY), else estimate (tag EST). Australian products where relevant.
+- Lifts: one object per set-group. Fields: type:"lift", exercise (canonical name, e.g. "Squat", "Lat Pulldown"), weightKg (number, or 0 if not stated), reps (number, or 0 if not stated), sets (number, default 1), warmup (true/false). "100kg squat for 3" = 1 set of 3 unless sets stated. Tag WORK or WARMUP. An exercise mentioned with NO weight/reps (e.g. just "Lat pulldowns") is still a lift — include it with weightKg 0, reps 0, detail "logged, no numbers".
+- Foods: type:"food", name, serving (text), cal, p, c, f (grams, numbers). Estimate for cooked weights unless stated raw. Use library match if close (tag LIBRARY), else estimate (tag EST). Australian products where relevant (e.g. KFC Australia menu items — estimate the full meal including sides and drink unless stated otherwise).
 - Bodyweight: type:"weight", kg (number). Only if user states their bodyweight.
+- Session labels ("PUSH DAY", "Breakfast", "Lunch"), and notes like "no deadlifts" are context, NOT items — use them to interpret, don't output them.
 - Every item gets: label (short display name), detail (short display string), tag.
 
-Respond with ONLY a JSON array, no markdown fences, no commentary.
+Respond with ONLY a raw JSON array. No markdown fences, no commentary, no text before or after the array.
 
 User text:
 ${text}`;
   try{
-    let out = await callClaude(prompt, 1500);
+    let out = await callClaude(prompt, 2000);
     out = out.replace(/```json|```/g,"").trim();
-    const items = JSON.parse(out);
+    // robust: extract first top-level JSON array even if wrapped in commentary
+    const s = out.indexOf("["), e = out.lastIndexOf("]");
+    if(s === -1 || e === -1 || e <= s) throw new Error("no JSON array in response");
+    const items = JSON.parse(out.slice(s, e+1));
     if(!Array.isArray(items)) throw new Error("bad shape");
     parsedPending = items;
   }catch(e){ if(!/^auth$|no key/.test(e.message)) toast('⚠ Parse failed: '+String(e.message||e).slice(0,110)); parsedPending = null; }
@@ -539,7 +543,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v6 · verified auto-model)…<br>";
+  out.innerHTML = "Running diagnostics (app v7)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Finding an available model on your key…");
