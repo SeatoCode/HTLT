@@ -102,7 +102,9 @@ let parsedPending = null;
 let parsing = false, coaching = false;
 
 const $ = id => document.getElementById(id);
-const todayISO = () => new Date().toISOString().slice(0,10);
+const localISO = d => { const x=d||new Date(); return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); };
+const todayISO = () => localISO();
+const daysAgoISO = n => localISO(new Date(Date.now()-n*864e5));
 const fmtD = iso => { const d=new Date(iso+"T12:00"); return d.toLocaleDateString('en-AU',{day:'numeric',month:'short'}); };
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const TAGC = {WORK:'var(--amber)',WARMUP:'var(--faint)',LIBRARY:'var(--teal)',EST:'var(--violet)',LABEL:'var(--green)'};
@@ -408,7 +410,7 @@ let progRange = 7;
 function calByDay(nDays){
   const out=[];
   for(let i=nDays-1;i>=0;i--){
-    const d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);
+    const d=daysAgoISO(i);
     out.push({date:d, cal:D.foods.filter(f=>f.date===d).reduce((s,f)=>s+f.cal,0)});
   }
   return out;
@@ -417,7 +419,7 @@ function logStreak(){
   const dates=new Set([...D.foods.map(f=>f.date),...D.lifts.map(l=>l.date),...D.weights.map(w=>w.date)]);
   let n=0;
   for(let i=0;;i++){
-    const d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);
+    const d=daysAgoISO(i);
     if(dates.has(d)) n++;
     else if(i===0) continue; // today not logged yet doesn't break streak
     else break;
@@ -443,7 +445,7 @@ function pageProgress(){
   const logged=days.filter(d=>d.cal>0);
   const avg=logged.length?logged.reduce((s,d)=>s+d.cal,0)/logged.length:0;
   // previous period comparison
-  const prevDays=[]; for(let i=2*n-1;i>=n;i--){const d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);prevDays.push(D.foods.filter(f=>f.date===d).reduce((s,f)=>s+f.cal,0));}
+  const prevDays=[]; for(let i=2*n-1;i>=n;i--){const d=daysAgoISO(i);prevDays.push(D.foods.filter(f=>f.date===d).reduce((s,f)=>s+f.cal,0));}
   const prevLogged=prevDays.filter(c=>c>0);
   const prevAvg=prevLogged.length?prevLogged.reduce((a,b)=>a+b,0)/prevLogged.length:0;
   const calDelta=prevAvg?Math.round((avg-prevAvg)/prevAvg*100):null;
@@ -678,7 +680,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v11)…<br>";
+  out.innerHTML = "Running diagnostics (app v12)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Finding an available model on your key…");
