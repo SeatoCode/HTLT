@@ -136,16 +136,43 @@ function importData(ev){
 }
 
 /* =============== AI =============== */
+async function resolveModel(){
+  if(D.model && D.modelCheckedAt && Date.now()-D.modelCheckedAt < 7*864e5) return D.model;
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key="+encodeURIComponent(D.apiKey));
+  const data = await res.json();
+  if(data.error) throw new Error(data.error.message||"model list failed");
+  const models=(data.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent"))
+    .map(m=>m.name.replace("models/",""))
+    .filter(n=>!/embed|image|tts|audio|live|thinking|exp/i.test(n));
+  // prefer newest flash, then flash-lite, then pro, then anything
+  const score=n=>{
+    const ver=parseFloat((n.match(/(\d+(\.\d+)?)/)||[0])[1])||0;
+    let s=ver*10;
+    if(/flash-lite/.test(n)) s+=2; else if(/flash/.test(n)) s+=4; else if(/pro/.test(n)) s+=3;
+    if(/preview/.test(n)) s-=1;
+    return s;
+  };
+  models.sort((a,b)=>score(b)-score(a));
+  if(!models.length) throw new Error("no usable models on this key");
+  D.model=models[0]; D.modelCheckedAt=Date.now(); await save();
+  return D.model;
+}
+
 async function callClaude(prompt, maxTokens=1000){
   if(!D.apiKey){ toast('⚠ Add your Gemini API key in Goals → Settings'); throw new Error("no key"); }
-  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+encodeURIComponent(D.apiKey),{
+  const model = await resolveModel();
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent?key="+encodeURIComponent(D.apiKey),{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[{text:prompt}]}],
       generationConfig:{maxOutputTokens:maxTokens}})
   });
   const data = await res.json();
-  if(data.error){ toast('⚠ '+(data.error.message||"API error").slice(0,120)); throw new Error(data.error.message||"api error"); }
+  if(data.error){
+    if(/no longer available|not found/i.test(data.error.message||"")){ D.model=null; D.modelCheckedAt=0; await save(); }
+    toast('⚠ '+(data.error.message||"API error").slice(0,120));
+    throw new Error(data.error.message||"api error");
+  }
   const cand = data.candidates && data.candidates[0];
   return cand && cand.content && cand.content.parts ? cand.content.parts.map(p=>p.text||"").join("") : "";
 }
@@ -501,12 +528,14 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v4 · Gemini)…<br>";
+  out.innerHTML = "Running diagnostics (app v5 · Gemini auto-model)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
-  if(!D.apiKey.startsWith("AIza")) log("• <span style='color:var(--amber)'>Warning: Gemini keys usually start with AIza — is this the right value?</span>");
-  log("• Calling Gemini API…");
+  log("• Finding an available model on your key…");
   try{
+    D.model=null; D.modelCheckedAt=0;
+    const model = await resolveModel();
+    log("• Using model: <b>"+esc(model)+"</b>");
     const txt = await callClaude("Reply with exactly: OK", 20);
     log("• <span style='color:var(--green)'>SUCCESS — model replied: "+esc(txt.trim())+"</span>");
     log("Parsing should work now.");
