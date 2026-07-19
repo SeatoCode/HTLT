@@ -80,6 +80,7 @@
 
 <nav id="nav">
   <button data-p="home">⌂</button>
+  <button data-p="progress">📊</button>
   <button data-p="log">＋</button>
   <button data-p="training">🏋</button>
   <button data-p="nutrition">◔</button>
@@ -344,24 +345,54 @@ function dotMonths(){
 }
 
 /* =============== PAGES =============== */
+function macroTile(){
+  const t=todayFoods();
+  const p=t.reduce((s,f)=>s+f.p,0), c=t.reduce((s,f)=>s+f.c,0), fat=t.reduce((s,f)=>s+f.f,0);
+  const cal=t.reduce((s,f)=>s+f.cal,0);
+  const mac=[{name:"Protein",g:p,cal:p*4,color:"#4ECDC4"},{name:"Carbs",g:c,cal:c*4,color:"#FFC85C"},{name:"Fat",g:fat,cal:fat*9,color:"#A78BFA"}];
+  return `<div class="card">
+    <div style="display:flex;align-items:center;gap:10px">
+      ${cal?donut(mac):`<div style="width:140px;height:140px;border-radius:50%;border:14px solid #222;flex-shrink:0"></div>`}
+      <div style="flex:1">
+        <div class="bignum" style="font-size:26px">${cal.toLocaleString()}</div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:6px">of ${D.settings.cal} cal today</div>
+        ${mac.map(m=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:4px">
+          <span style="color:${m.color}">● ${m.name}</span><span style="color:var(--dim)">${Math.round(m.g)}g</span></div>`).join("")}
+        <div style="font-size:11.5px;color:${p>=D.settings.protein?'var(--green)':'var(--dim)'};margin-top:7px">Protein floor ${D.settings.protein}g ${p>=D.settings.protein?"✓ hit":`· ${Math.max(0,Math.round(D.settings.protein-p))}g to go`}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bigThreeCards(){
+  const targets = [
+    {label:"Deadlift", match:/deadlift/i},
+    {label:"Squat", match:/squat/i},
+    {label:"Bench", match:/bench/i},
+  ];
+  return targets.map(t=>{
+    // find the user's actual exercise name matching this lift (e.g. "Dumbbell Bench Press")
+    const ex = topExercises().find(e=>t.match.test(e));
+    const h = ex ? exHistory(ex).filter(x=>x.top>0) : [];
+    const last = h[h.length-1];
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div class="label" style="margin-bottom:6px">${esc(ex||t.label)}</div>
+        <div style="font-size:20px;font-weight:700">${last?last.top+'<span class="unit"> kg</span>':'<span style="color:var(--faint);font-size:13px;font-weight:400">not logged yet</span>'}</div>
+      </div>
+      ${h.length?lineChart(h.slice(-12).map(x=>({v:x.top,l:fmtD(x.date)})),{h:100,color:"#FFF"}):
+        `<div style="color:var(--faint);font-size:12px;padding:8px 0">Log ${esc(t.label.toLowerCase())} sessions with weights to build this chart.</div>`}
+    </div>`;
+  }).join("");
+}
+
 function pageHome(){
   const w=D.weights[D.weights.length-1];
   const t=todayFoods(); const cal=t.reduce((s,f)=>s+f.cal,0);
   const todayLifts=[...new Set(D.lifts.filter(l=>l.date===todayISO()).map(l=>l.exercise))];
   return `
   <div class="pagetitle">Today</div>
-  <div class="row">
-    <div class="card" style="min-height:150px;display:flex;flex-direction:column;justify-content:space-between">
-      <div class="bignum">${todayLifts.length||"–"}</div>
-      <div><div style="font-size:15px;font-weight:600">${todayLifts.length?esc(todayLifts.slice(0,2).join(" + ")):"No session yet"}</div>
-      <div style="font-size:12px;color:var(--dim)">${todayLifts.length?"exercises today":"tap ＋ to log"}</div></div>
-    </div>
-    <div class="card" style="min-height:150px;display:flex;flex-direction:column;justify-content:space-between">
-      <div class="bignum">${w?w.kg:"–"}<span class="unit"> kg</span></div>
-      <div><div style="font-size:15px;font-weight:600">Body Weight</div>
-      <div style="font-size:12px;color:var(--dim)">${w?fmtD(w.date):"not logged"}</div></div>
-    </div>
-  </div>
+  ${macroTile()}
   <div class="card">${dotMonths()}
     <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
       <div class="bignum" style="font-size:24px">${sessionDates().length}</div>
@@ -369,13 +400,117 @@ function pageHome(){
       <div style="font-size:12px;color:var(--dim)">all time</div></div>
     </div>
   </div>
-  <div class="card" style="display:flex;justify-content:space-between;align-items:center">
-    <div><div style="font-size:15px;font-weight:600">Volume lifted</div><div style="font-size:12px;color:var(--dim)">Last 7 days · working sets</div></div>
-    <div class="bignum" style="font-size:24px">${Math.round(volume7d()).toLocaleString()}<span class="unit"> kg</span></div>
+  <div class="label" style="margin:18px 4px 10px;letter-spacing:1.5px">THE BIG THREE</div>
+  ${bigThreeCards()}`;
+}
+
+let progRange = 7;
+function calByDay(nDays){
+  const out=[];
+  for(let i=nDays-1;i>=0;i--){
+    const d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);
+    out.push({date:d, cal:D.foods.filter(f=>f.date===d).reduce((s,f)=>s+f.cal,0)});
+  }
+  return out;
+}
+function logStreak(){
+  const dates=new Set([...D.foods.map(f=>f.date),...D.lifts.map(l=>l.date),...D.weights.map(w=>w.date)]);
+  let n=0;
+  for(let i=0;;i++){
+    const d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);
+    if(dates.has(d)) n++;
+    else if(i===0) continue; // today not logged yet doesn't break streak
+    else break;
+  }
+  return n;
+}
+function barChart(points,{h=130,target=null}={}){
+  if(!points.length) return "";
+  const w=320, bw=Math.max(6,Math.min(26,(w-30)/points.length-6));
+  const vmax=Math.max(...points.map(p=>p.v), target||0, 1);
+  const bars=points.map((p,i)=>{
+    const x=15+(w-30)*(points.length>1?i/(points.length-1):0.5)-bw/2;
+    const bh=(h-34)*p.v/vmax;
+    return `<rect x="${x.toFixed(1)}" y="${(h-22-bh).toFixed(1)}" width="${bw}" height="${Math.max(bh,1).toFixed(1)}" rx="4" fill="${p.v?'#FFC85C':'#2A2A2C'}"/>
+      ${p.l!==undefined?`<text x="${(x+bw/2).toFixed(1)}" y="${h-7}" fill="var(--faint)" font-size="8.5" text-anchor="middle">${esc(p.l)}</text>`:""}`;
+  }).join("");
+  const tline = target?`<line x1="12" x2="${w-12}" y1="${(h-22-(h-34)*target/vmax).toFixed(1)}" y2="${(h-22-(h-34)*target/vmax).toFixed(1)}" stroke="var(--faint)" stroke-dasharray="4 4" stroke-width="1"/>`:"";
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto">${tline}${bars}</svg>`;
+}
+function pageProgress(){
+  const n=progRange;
+  const days=calByDay(n);
+  const logged=days.filter(d=>d.cal>0);
+  const avg=logged.length?logged.reduce((s,d)=>s+d.cal,0)/logged.length:0;
+  // previous period comparison
+  const prevDays=[]; for(let i=2*n-1;i>=n;i--){const d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);prevDays.push(D.foods.filter(f=>f.date===d).reduce((s,f)=>s+f.cal,0));}
+  const prevLogged=prevDays.filter(c=>c>0);
+  const prevAvg=prevLogged.length?prevLogged.reduce((a,b)=>a+b,0)/prevLogged.length:0;
+  const calDelta=prevAvg?Math.round((avg-prevAvg)/prevAvg*100):null;
+  const dayL=d=>"SMTWTFS"[new Date(d+"T12:00").getDay()];
+  // weight
+  const wCut=Date.now()-n*864e5, wPrevCut=Date.now()-2*n*864e5;
+  const wNow=D.weights.filter(x=>x.ts>=wCut), wPrev=D.weights.filter(x=>x.ts>=wPrevCut&&x.ts<wCut);
+  const wAvg=wNow.length?wNow.reduce((s,x)=>s+x.kg,0)/wNow.length:0;
+  const wPrevAvg=wPrev.length?wPrev.reduce((s,x)=>s+x.kg,0)/wPrev.length:0;
+  const wDelta=(wAvg&&wPrevAvg)?(wAvg-wPrevAvg):null;
+  // goal %
+  const goalPct=logged.length?Math.round(100*logged.filter(d=>d.cal<=D.settings.cal*1.05).length/logged.length):0;
+  // insights
+  const t=todayFoods();
+  const pSum=D.foods.filter(f=>f.ts>=wCut).reduce((s,f)=>s+f.p,0), cSum=D.foods.filter(f=>f.ts>=wCut).reduce((s,f)=>s+f.c,0), fSum=D.foods.filter(f=>f.ts>=wCut).reduce((s,f)=>s+f.f,0);
+  const macTotal=(pSum*4+cSum*4+fSum*9)||1;
+  const protDays=(()=>{const m={};D.foods.filter(f=>f.ts>=wCut).forEach(f=>m[f.date]=(m[f.date]||0)+f.p);const v=Object.values(m);return v.length?Math.round(100*v.filter(x=>x>=D.settings.protein).length/v.length):0;})();
+  // most improved lift over range
+  let improved=null;
+  topExercises().forEach(ex=>{const h=exHistory(ex).filter(x=>x.top>0);const inRange=h.filter(x=>new Date(x.date+"T12:00").getTime()>=wCut);
+    if(inRange.length>=2){const gain=inRange[inRange.length-1].top-inRange[0].top;
+      if(gain>0&&(!improved||gain>improved.gain)) improved={ex,gain,now:inRange[inRange.length-1].top};}});
+  const sessN=sessionDates().filter(d=>new Date(d+"T12:00").getTime()>=wCut).length;
+  return `
+  <div class="pagetitle">Your progress</div>
+  <div style="font-size:13px;color:var(--dim);margin:-8px 0 12px">Small steps, big changes.</div>
+  <div class="seg">
+    ${[[7,"Week"],[30,"Month"],[90,"3 Months"]].map(([v,l])=>`<button class="${progRange===v?'on':''}" onclick="progRange=${v};render()">${l}</button>`).join("")}
   </div>
-  <div class="card" style="display:flex;justify-content:space-between;align-items:center">
-    <div><div style="font-size:15px;font-weight:600">Calories today</div><div style="font-size:12px;color:var(--dim)">${cal} of ${D.settings.cal}</div></div>
-    <div class="bignum" style="font-size:24px">${Math.max(0,D.settings.cal-cal)}<span class="unit"> left</span></div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="label" style="margin:0">Calories intake</div>
+      ${calDelta!==null?`<div style="font-size:13px;font-weight:600;color:${calDelta<=0?'var(--green)':'var(--amber)'}">${calDelta>0?"↑":"↓"} ${Math.abs(calDelta)}% <span style="color:var(--faint);font-weight:400">vs last period</span></div>`:""}
+    </div>
+    <div class="bignum" style="margin:4px 0 6px">${Math.round(avg).toLocaleString()}<span class="unit"> cal avg</span></div>
+    ${barChart(days.map((d,i)=>({v:d.cal, l:(n<=7||i%Math.ceil(n/7)===0)?dayL(d.date):undefined})),{target:D.settings.cal})}
+    <div style="font-size:11.5px;color:var(--faint)">Dashed line = your ${D.settings.cal} cal target</div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="label" style="margin:0">Weight trend</div>
+      ${wDelta!==null?`<div style="font-size:13px;font-weight:600;color:${wDelta<=0?'var(--green)':'var(--amber)'}">${wDelta>0?"↑":"↓"} ${Math.abs(wDelta).toFixed(1)} kg <span style="color:var(--faint);font-weight:400">vs last period</span></div>`:""}
+    </div>
+    <div class="bignum" style="margin:4px 0 6px">${wAvg?wAvg.toFixed(1):"–"}<span class="unit"> kg avg</span></div>
+    ${lineChart(wNow.map(x=>({v:x.kg,l:fmtD(x.date)})),{color:"#4ECDC4",h:110})}
+  </div>
+  <div class="row">
+    <div class="card" style="margin-bottom:12px">
+      <div class="label">Streak</div>
+      <div class="bignum">${logStreak()}<span class="unit"> days</span></div>
+      <div style="font-size:12px;color:var(--dim)">${logStreak()>0?"Keep it up!":"Log today to start one"}</div>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="label">Daily goal</div>
+      <div class="bignum">${goalPct}<span class="unit">%</span></div>
+      <div style="font-size:12px;color:${goalPct>=70?'var(--green)':'var(--dim)'}">${goalPct>=70?"On track!":"days at/under target"}</div>
+    </div>
+  </div>
+  <div class="pagetitle" style="font-size:24px;margin:6px 0 12px">Insights</div>
+  <div class="card">
+    <div class="label">This period</div>
+    <div style="font-size:13.5px;line-height:1.8">
+      🏋️ ${sessN} training session${sessN===1?"":"s"} logged<br>
+      ${improved?`📈 Most improved: <b>${esc(improved.ex)}</b> +${improved.gain}kg → ${improved.now}kg<br>`:`📈 No lift PRs yet this period — log weights to track gains<br>`}
+      🥩 Protein floor hit on <b>${protDays}%</b> of logged days<br>
+      🍽 Macro balance: ${Math.round(pSum*4/macTotal*100)}% protein · ${Math.round(cSum*4/macTotal*100)}% carbs · ${Math.round(fSum*9/macTotal*100)}% fat
+    </div>
   </div>`;
 }
 
@@ -543,7 +678,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v7)…<br>";
+  out.innerHTML = "Running diagnostics (app v11)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Finding an available model on your key…");
@@ -568,7 +703,7 @@ async function saveSettings(){
 
 /* =============== RENDER =============== */
 function render(){
-  const pages={home:pageHome, log:pageLog, training:pageTraining, nutrition:pageNutrition, goals:pageGoals};
+  const pages={home:pageHome, progress:pageProgress, log:pageLog, training:pageTraining, nutrition:pageNutrition, goals:pageGoals};
   $('app').innerHTML = pages[page]();
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===page));
 }
