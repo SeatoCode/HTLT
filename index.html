@@ -147,11 +147,11 @@ async function resolveModel(){
   const models=(data.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent"))
     .map(m=>m.name.replace("models/",""))
     .filter(n=>!/embed|image|tts|audio|live|thinking|exp|research|interaction|robotics|computer|aqa|learnlm|gemma/i.test(n));
-  // prefer newest flash, then flash-lite, then pro, then anything
+  // prefer flash-lite (biggest free-tier quota), then flash, then pro
   const score=n=>{
     const ver=parseFloat((n.match(/(\d+(\.\d+)?)/)||[0])[1])||0;
     let s=ver*10;
-    if(/flash-lite/.test(n)) s+=2; else if(/flash/.test(n)) s+=4; else if(/pro/.test(n)) s+=3;
+    if(/flash-lite/.test(n)) s+=5; else if(/flash/.test(n)) s+=4; else if(/pro/.test(n)) s+=2;
     if(/preview/.test(n)) s-=1;
     return s;
   };
@@ -167,6 +167,7 @@ async function resolveModel(){
       const j=await r.json();
       if(!j.error){ D.model=cand; D.modelCheckedAt=Date.now(); await save(); return cand; }
       lastErr=j.error.message||"";
+      // quota-limited model → skip to next candidate rather than fail
     }catch(e){ lastErr=String(e.message||e); }
   }
   throw new Error("no working model found — last error: "+lastErr);
@@ -184,6 +185,7 @@ async function callClaude(prompt, maxTokens=1000){
   const data = await res.json();
   if(data.error){
     if(/no longer available|not found/i.test(data.error.message||"")){ D.model=null; D.modelCheckedAt=0; await save(); }
+    if(/quota|rate/i.test(data.error.message||"")){ D.model=null; D.modelCheckedAt=0; await save(); toast('⚠ Rate limit hit — wait a minute and try again'); throw new Error("quota — wait ~1 min and retry"); }
     toast('⚠ '+(data.error.message||"API error").slice(0,120));
     throw new Error(data.error.message||"api error");
   }
@@ -680,14 +682,13 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v12)…<br>";
+  out.innerHTML = "Running diagnostics (app v13)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
-  log("• Finding an available model on your key…");
+  log("• Checking model…");
   try{
-    D.model=null; D.modelCheckedAt=0;
     const model = await resolveModel();
-    log("• Using model: <b>"+esc(model)+"</b>");
+    log("• Using model: <b>"+esc(model)+"</b>"+(D.modelCheckedAt&&Date.now()-D.modelCheckedAt>5000?" (cached)":""));
     const txt = await callClaude("Reply with exactly: OK", 20);
     log("• <span style='color:var(--green)'>SUCCESS — model replied: "+esc(txt.trim())+"</span>");
     log("Parsing should work now.");
