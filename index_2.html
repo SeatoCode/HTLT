@@ -1,0 +1,543 @@
+<!-- HTLT — Harder Than Last Time -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>HTLT</title>
+<meta name="apple-mobile-web-app-title" content="HTLT">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  :root{
+    --bg:#000; --card:#141414; --card2:#1C1C1E; --line:#262628;
+    --text:#FFF; --dim:#8E8E93; --faint:#5A5A5E;
+    --green:#5BD98A; --red:#FF6B6B; --teal:#4ECDC4; --amber:#FFC85C; --violet:#A78BFA;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:'Inter','SF Pro Display',-apple-system,sans-serif;min-height:100%}
+  body{padding-bottom:110px;padding-top:env(safe-area-inset-top)}
+  .brand{text-align:center;padding:16px 0 4px}
+  .brand h1{margin:0;font-size:22px;font-weight:800;letter-spacing:6px}
+  .wrap{max-width:520px;margin:0 auto;padding:0 16px}
+  .pagetitle{font-size:32px;font-weight:700;margin:14px 0 14px}
+  .card{background:var(--card);border-radius:24px;padding:18px;margin-bottom:12px}
+  .card2{background:var(--card2);border-radius:16px;padding:12px}
+  .label{font-size:13px;color:var(--dim);margin-bottom:8px}
+  .bignum{font-size:32px;font-weight:700}
+  .unit{font-size:14px;color:var(--dim);font-weight:500}
+  .row{display:flex;gap:12px}
+  .row>*{flex:1}
+  textarea{width:100%;background:#0C0C0C;border:1px solid var(--line);border-radius:16px;
+    color:var(--text);font-family:inherit;font-size:15px;line-height:1.6;padding:14px;
+    min-height:110px;resize:vertical}
+  textarea:focus,input:focus{outline:1.5px solid #444}
+  input{background:#0C0C0C;border:1px solid var(--line);border-radius:12px;color:var(--text);
+    font-family:inherit;font-size:15px;padding:10px 12px;width:100%}
+  .btn{border:none;border-radius:16px;padding:14px 0;font-weight:700;font-size:15px;
+    cursor:pointer;font-family:inherit;width:100%}
+  .btn-w{background:#FFF;color:#000}
+  .btn-g{background:var(--green);color:#052912}
+  .btn-ghost{background:var(--card2);color:var(--text)}
+  .btn:disabled{opacity:.45}
+  .chip{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;
+    background:var(--card2);margin-bottom:6px}
+  .chip .t1{font-size:14px;font-weight:600}
+  .chip .t2{font-size:11.5px;color:var(--dim)}
+  .tag{font-size:9px;letter-spacing:1px;border-radius:6px;padding:3px 7px;border:1px solid}
+  .x{background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer;padding:4px}
+  nav{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#161616;
+    border-radius:28px;display:flex;padding:4px 6px;border:1px solid #222;z-index:50}
+  nav button{background:none;border:none;color:var(--faint);font-size:19px;padding:10px 15px;
+    border-radius:20px;cursor:pointer}
+  nav button.on{color:#FFF;background:#2A2A2C}
+  .hide{display:none!important}
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid #555;border-top-color:#fff;
+    border-radius:50%;animation:sp .7s linear infinite;vertical-align:-3px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .dotgrid{display:grid;grid-template-columns:repeat(7,7px);gap:5px;justify-content:center}
+  .dot{width:5px;height:5px;border-radius:3px;background:#2A2A2C}
+  .dot.on{background:#FFF}
+  .staple{font-size:13.5px;padding:9px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .staple:last-child{border-bottom:none}
+  .toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#1E1E1E;
+    border:1px solid #333;border-radius:14px;padding:10px 18px;font-size:14px;z-index:99;
+    opacity:0;transition:opacity .25s;pointer-events:none}
+  .toast.show{opacity:1}
+  select{background:#0C0C0C;border:1px solid var(--line);border-radius:12px;color:var(--text);
+    font-family:inherit;font-size:14px;padding:9px 12px}
+  .seg{display:flex;background:var(--card2);border-radius:14px;padding:3px;margin-bottom:12px}
+  .seg button{flex:1;border:none;background:none;color:var(--dim);font-family:inherit;
+    font-size:13px;font-weight:600;padding:8px 0;border-radius:11px;cursor:pointer}
+  .seg button.on{background:#333;color:#fff}
+  @media (prefers-reduced-motion: reduce){.spin{animation:none}}
+</style>
+
+<div class="toast" id="toast"></div>
+<div class="brand"><h1>HTLT</h1></div>
+<div class="wrap" id="app"></div>
+
+<nav id="nav">
+  <button data-p="home">⌂</button>
+  <button data-p="log">＋</button>
+  <button data-p="training">🏋</button>
+  <button data-p="nutrition">◔</button>
+  <button data-p="goals">◎</button>
+</nav>
+
+<script>
+/* =============== STATE =============== */
+let D = { lifts:[], foods:[], weights:[], library:{}, goals:[], settings:{cal:2200, protein:150}, coach:null };
+let page = "home";
+let parsedPending = null;
+let parsing = false, coaching = false;
+
+const $ = id => document.getElementById(id);
+const todayISO = () => new Date().toISOString().slice(0,10);
+const fmtD = iso => { const d=new Date(iso+"T12:00"); return d.toLocaleDateString('en-AU',{day:'numeric',month:'short'}); };
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const TAGC = {WORK:'var(--amber)',WARMUP:'var(--faint)',LIBRARY:'var(--teal)',EST:'var(--violet)',LABEL:'var(--green)'};
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+
+async function load(){
+  try{ const r = localStorage.getItem('htlt:data'); if(r){ D = Object.assign(D, JSON.parse(r)); } }
+  catch(e){ /* first run — no data yet */ }
+}
+async function save(){
+  try{ localStorage.setItem('htlt:data', JSON.stringify(D)); }
+  catch(e){ toast('⚠ Save failed — storage full?'); }
+}
+function exportData(){
+  const blob = new Blob([JSON.stringify(D,null,2)],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'htlt-backup-'+todayISO()+'.json';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+function importData(ev){
+  const file = ev.target.files[0]; if(!file) return;
+  const rd = new FileReader();
+  rd.onload = async ()=>{ try{
+    const obj = JSON.parse(rd.result);
+    if(!obj || typeof obj!=="object" || !("lifts" in obj)) throw 0;
+    D = Object.assign({lifts:[],foods:[],weights:[],library:{},goals:[],settings:{cal:2200,protein:150},coach:null,apiKey:D.apiKey}, obj);
+    await save(); toast('✓ Backup restored'); render();
+  }catch(e){ toast('⚠ Invalid backup file'); } };
+  rd.readAsText(file);
+}
+
+/* =============== AI =============== */
+async function callClaude(prompt, maxTokens=1000){
+  if(!D.apiKey){ toast('⚠ Add your API key in Goals → Settings'); throw new Error("no key"); }
+  const res = await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-api-key": D.apiKey,
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true"
+    },
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:maxTokens,
+      messages:[{role:"user",content:prompt}]})
+  });
+  if(res.status===401){ toast('⚠ API key rejected — check it in Settings'); throw new Error("auth"); }
+  const data = await res.json();
+  if(data.error){ toast('⚠ '+(data.error.message||"API error").slice(0,120)); throw new Error(data.error.message||"api error"); }
+  return (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+}
+
+async function parseEntry(){
+  const text = $('logtext').value.trim();
+  if(!text){ toast('Type something first'); return; }
+  parsing = true; render();
+  const libSummary = Object.entries(D.library).slice(-40).map(([k,v])=>
+    `${k}: ${v.cal}cal ${v.p}P ${v.c}C ${v.f}F per "${v.serving}"`).join("\n") || "none yet";
+  const prompt = `You are the parser for a personal health log app. The user types free text mixing gym lifts, food, and bodyweight. Parse it into JSON.
+
+USER'S SAVED FOOD LIBRARY (prefer these exact macros when a food matches, tag "LIBRARY"):
+${libSummary}
+
+Rules:
+- Lifts: one object per set-group. Fields: type:"lift", exercise (canonical name, e.g. "Squat", "Leg Extension"), weightKg (number), reps (number), sets (number, default 1), warmup (true/false). "100kg squat for 3" = 1 set of 3 unless sets stated. Tag WORK or WARMUP.
+- Foods: type:"food", name, serving (text), cal, p, c, f (grams, numbers). Estimate for cooked weights unless stated raw. Use library match if close (tag LIBRARY), else estimate (tag EST). Australian products where relevant.
+- Bodyweight: type:"weight", kg (number). Only if user states their bodyweight.
+- Every item gets: label (short display name), detail (short display string), tag.
+
+Respond with ONLY a JSON array, no markdown fences, no commentary.
+
+User text:
+${text}`;
+  try{
+    let out = await callClaude(prompt, 1500);
+    out = out.replace(/```json|```/g,"").trim();
+    const items = JSON.parse(out);
+    if(!Array.isArray(items)) throw new Error("bad shape");
+    parsedPending = items;
+  }catch(e){ if(!/^auth$|no key/.test(e.message)) toast('⚠ Parse failed: '+String(e.message||e).slice(0,110)); parsedPending = null; }
+  parsing = false; render();
+}
+
+async function saveParsed(){
+  if(!parsedPending) return;
+  const date = todayISO(), ts = Date.now();
+  for(const it of parsedPending){
+    if(it.type==="lift"){
+      D.lifts.push({date, ts, exercise:it.exercise, weightKg:+it.weightKg||0, reps:+it.reps||0, sets:+it.sets||1, warmup:!!it.warmup});
+    }else if(it.type==="food"){
+      const f = {date, ts, name:it.name, serving:it.serving||"", cal:+it.cal||0, p:+it.p||0, c:+it.c||0, f:+it.f||0};
+      D.foods.push(f);
+      const key = (it.name||"").toLowerCase().trim();
+      if(key && !D.library[key]) D.library[key] = {cal:f.cal, p:f.p, c:f.c, f:f.f, serving:f.serving};
+    }else if(it.type==="weight" && it.kg){
+      D.weights.push({date, ts, kg:+it.kg});
+    }
+  }
+  parsedPending = null; $('logtext') && ($('logtext').value="");
+  await save(); toast('✓ Saved'); render();
+}
+
+async function runCoach(){
+  coaching = true; render();
+  const w = D.weights.slice(-12), recentCal = dailyCals(14);
+  const goal = D.goals[D.goals.length-1];
+  const exSummary = topExercises().slice(0,5).map(e=>{
+    const h = exHistory(e); const last = h[h.length-1];
+    return `${e}: top set ${last?last.top+"kg":"?"} (${h.length} sessions logged)`;
+  }).join("\n");
+  const prompt = `You are the AI coach in a personal health app. User is 26M, trains 6-day PPL, prefers 3 working sets of 5 (double progression), Australian.
+
+GOAL: ${goal?`"${goal.text}"${goal.target?` target ${goal.target}`:""}${goal.by?` by ${goal.by}`:""}`:"no explicit goal set"}
+BODYWEIGHT (recent): ${w.map(x=>`${fmtD(x.date)} ${x.kg}kg`).join(", ")||"none logged"}
+AVG DAILY CALORIES (days with logs, last 14d): ${recentCal.avg?Math.round(recentCal.avg)+" cal over "+recentCal.n+" days":"none logged"}
+CALORIE TARGET: ${D.settings.cal} · PROTEIN FLOOR: ${D.settings.protein}g
+TRAINING: ${exSummary||"none logged"}
+
+Give a concrete, numbers-first plan/check-in in under 120 words. Plain text, no markdown, no headers. Be direct. If data is thin, say what to log to get a real read. Note this is general guidance, not medical advice, only if genuinely warranted.`;
+  try{ D.coach = { at: Date.now(), text: (await callClaude(prompt, 400)).trim() }; await save(); }
+  catch(e){ toast('⚠ Coach unavailable — try again'); }
+  coaching = false; render();
+}
+
+/* =============== DERIVED =============== */
+function todayFoods(){ return D.foods.filter(f=>f.date===todayISO()); }
+function dailyCals(days){
+  const map={}; const cutoff = Date.now()-days*864e5;
+  D.foods.forEach(f=>{ if(f.ts>=cutoff){ map[f.date]=(map[f.date]||0)+f.cal; } });
+  const vals=Object.values(map);
+  return {avg: vals.length? vals.reduce((a,b)=>a+b,0)/vals.length : 0, n: vals.length};
+}
+function topExercises(){
+  const c={}; D.lifts.forEach(l=>{ if(!l.warmup) c[l.exercise]=(c[l.exercise]||0)+1; });
+  return Object.keys(c).sort((a,b)=>c[b]-c[a]);
+}
+function exHistory(ex){
+  const byDate={};
+  D.lifts.filter(l=>l.exercise===ex && !l.warmup).forEach(l=>{
+    if(!byDate[l.date]) byDate[l.date]={date:l.date, top:0, sets:0};
+    byDate[l.date].top = Math.max(byDate[l.date].top, l.weightKg);
+    byDate[l.date].sets += l.sets;
+  });
+  return Object.values(byDate).sort((a,b)=>a.date<b.date?-1:1);
+}
+function volume7d(){
+  const cutoff = Date.now()-7*864e5;
+  return D.lifts.filter(l=>l.ts>=cutoff && !l.warmup).reduce((s,l)=>s+l.weightKg*l.reps*l.sets,0);
+}
+function sessionDates(){ return [...new Set(D.lifts.map(l=>l.date))]; }
+
+/* =============== SVG CHARTS =============== */
+function lineChart(points, {w=320,h=120,color="#FFF",unit=""}={}){
+  if(points.length<2) return `<div style="color:var(--faint);font-size:13px;padding:20px 0;text-align:center">Log ${2-points.length} more ${points.length?'entry':'entries'} to see a trend</div>`;
+  const xs=points.map((_,i)=>i), ys=points.map(p=>p.v);
+  const ymin=Math.min(...ys), ymax=Math.max(...ys), pad=(ymax-ymin)*0.15||1;
+  const X=i=>10+(w-20)*i/(xs.length-1), Y=v=>h-18-(h-30)*((v-(ymin-pad))/((ymax+pad)-(ymin-pad)));
+  const path=points.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(" ");
+  const dots=points.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3.5" fill="${color}"/>`).join("");
+  const labels=points.map((p,i)=> (points.length<=7 || i%Math.ceil(points.length/6)===0 || i===points.length-1) ?
+    `<text x="${X(i).toFixed(1)}" y="${h-4}" fill="var(--faint)" font-size="9" text-anchor="middle">${esc(p.l)}</text>`:"").join("");
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto" role="img" aria-label="trend chart">
+    <path d="${path}" stroke="${color}" stroke-width="2.5" fill="none" stroke-linecap="round"/>${dots}${labels}</svg>`;
+}
+function barsSets(hist, target=3){
+  if(!hist.length) return "";
+  const w=320,h=90,bw=Math.min(34,(w-20)/hist.length-8);
+  const bars=hist.map((p,i)=>{
+    const x=10+(w-20)*i/Math.max(hist.length-1,1)-bw/2;
+    const bh=(h-30)*Math.min(p.sets,target)/target;
+    const hit=p.sets>=target;
+    return `<rect x="${Math.max(2,x).toFixed(1)}" y="${(h-20-bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx="6" fill="${hit?'#FFF':'#48484A'}"/>
+      <text x="${(Math.max(2,x)+bw/2).toFixed(1)}" y="${h-6}" fill="var(--faint)" font-size="9" text-anchor="middle">${esc(fmtD(p.date))}</text>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto"><line x1="10" x2="${w-10}" y1="${h-20-(h-30)}" y2="${h-20-(h-30)}" stroke="var(--faint)" stroke-dasharray="4 4" stroke-width="1"/>${bars}</svg>`;
+}
+function donut(mac){
+  const total=mac.reduce((s,m)=>s+m.cal,0)||1;
+  let a0=-90; const r=52, cx=70, cy=70;
+  const segs=mac.map(m=>{
+    const a1=a0+360*m.cal/total;
+    const large=(a1-a0)>180?1:0;
+    const p0=[cx+r*Math.cos(a0*Math.PI/180),cy+r*Math.sin(a0*Math.PI/180)];
+    const p1=[cx+r*Math.cos(a1*Math.PI/180),cy+r*Math.sin(a1*Math.PI/180)];
+    const d=`M${p0[0].toFixed(1)},${p0[1].toFixed(1)} A${r},${r} 0 ${large} 1 ${p1[0].toFixed(1)},${p1[1].toFixed(1)}`;
+    a0=a1+2;
+    return m.cal>0?`<path d="${d}" stroke="${m.color}" stroke-width="20" fill="none" stroke-linecap="round"/>`:"";
+  }).join("");
+  return `<svg viewBox="0 0 140 140" style="width:140px;height:140px">${segs}</svg>`;
+}
+function dotMonths(){
+  const now=new Date(); const months=[];
+  for(let m=2;m>=0;m--){
+    const d=new Date(now.getFullYear(),now.getMonth()-m,1);
+    const label=d.toLocaleDateString('en-AU',{month:'short'});
+    const days=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+    const active=new Set(sessionDates().filter(s=>{const x=new Date(s+"T12:00");return x.getMonth()===d.getMonth()&&x.getFullYear()===d.getFullYear();}).map(s=>+s.slice(8)));
+    let dots=""; for(let i=1;i<=35;i++) dots+=`<div class="dot ${i<=days&&active.has(i)?'on':''}"></div>`;
+    months.push(`<div style="text-align:center"><div style="font-size:12px;color:var(--dim);margin-bottom:8px">${label}</div><div class="dotgrid">${dots}</div></div>`);
+  }
+  return `<div style="display:flex;justify-content:space-around">${months.join("")}</div>`;
+}
+
+/* =============== PAGES =============== */
+function pageHome(){
+  const w=D.weights[D.weights.length-1];
+  const t=todayFoods(); const cal=t.reduce((s,f)=>s+f.cal,0);
+  const todayLifts=[...new Set(D.lifts.filter(l=>l.date===todayISO()).map(l=>l.exercise))];
+  return `
+  <div class="pagetitle">Today</div>
+  <div class="row">
+    <div class="card" style="min-height:150px;display:flex;flex-direction:column;justify-content:space-between">
+      <div class="bignum">${todayLifts.length||"–"}</div>
+      <div><div style="font-size:15px;font-weight:600">${todayLifts.length?esc(todayLifts.slice(0,2).join(" + ")):"No session yet"}</div>
+      <div style="font-size:12px;color:var(--dim)">${todayLifts.length?"exercises today":"tap ＋ to log"}</div></div>
+    </div>
+    <div class="card" style="min-height:150px;display:flex;flex-direction:column;justify-content:space-between">
+      <div class="bignum">${w?w.kg:"–"}<span class="unit"> kg</span></div>
+      <div><div style="font-size:15px;font-weight:600">Body Weight</div>
+      <div style="font-size:12px;color:var(--dim)">${w?fmtD(w.date):"not logged"}</div></div>
+    </div>
+  </div>
+  <div class="card">${dotMonths()}
+    <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
+      <div class="bignum" style="font-size:24px">${sessionDates().length}</div>
+      <div><div style="font-size:14px;font-weight:600">Sessions logged</div>
+      <div style="font-size:12px;color:var(--dim)">all time</div></div>
+    </div>
+  </div>
+  <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+    <div><div style="font-size:15px;font-weight:600">Volume lifted</div><div style="font-size:12px;color:var(--dim)">Last 7 days · working sets</div></div>
+    <div class="bignum" style="font-size:24px">${Math.round(volume7d()).toLocaleString()}<span class="unit"> kg</span></div>
+  </div>
+  <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+    <div><div style="font-size:15px;font-weight:600">Calories today</div><div style="font-size:12px;color:var(--dim)">${cal} of ${D.settings.cal}</div></div>
+    <div class="bignum" style="font-size:24px">${Math.max(0,D.settings.cal-cal)}<span class="unit"> left</span></div>
+  </div>`;
+}
+
+function pageLog(){
+  const chips = parsedPending? parsedPending.map((p,i)=>`
+    <div class="chip">
+      <span>${p.type==="lift"?"🏋️":p.type==="weight"?"⚖️":"🍽️"}</span>
+      <div style="flex:1"><div class="t1">${esc(p.label||p.name||p.exercise||"item")}</div>
+      <div class="t2">${esc(p.detail||"")}</div></div>
+      <span class="tag" style="color:${TAGC[p.tag]||'var(--dim)'};border-color:${TAGC[p.tag]||'#444'}55">${esc(p.tag||"")}</span>
+      <button class="x" onclick="removeChip(${i})">✕</button>
+    </div>`).join("") : "";
+  return `
+  <div class="pagetitle">Log</div>
+  <div class="card">
+    <div class="label">Type anything — AI sorts it</div>
+    <textarea id="logtext" placeholder="100kg squat for 3&#10;leg extensions 40kg 3x5, warmup 35kg x12&#10;beef mince and rice (220g/70g), 3 cheese rice cakes&#10;weighed in at 75.1kg"></textarea>
+    <div style="margin-top:12px">
+      <button class="btn btn-w" onclick="parseEntry()" ${parsing?"disabled":""}>${parsing?'<span class="spin"></span> Parsing…':'Parse entry'}</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--faint);margin-top:10px">Tip: paste or describe a nutrition label and I'll save it to your library. Calorie figures are estimates unless from a label.</div>
+  </div>
+  ${parsedPending?`
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+      <span class="label" style="margin:0">${parsedPending.length} items · confirm to save</span>
+      <span style="font-size:13px;color:var(--teal)">~${parsedPending.filter(p=>p.type==="food").reduce((s,p)=>s+(+p.cal||0),0)} cal</span>
+    </div>
+    ${chips}
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-g" onclick="saveParsed()">✓ Save all</button>
+      <button class="btn btn-ghost" onclick="parsedPending=null;render()">Discard</button>
+    </div>
+  </div>`:""}`;
+}
+
+let trainSel = null;
+function pageTraining(){
+  const exs = topExercises();
+  if(!exs.length) return `<div class="pagetitle">Training</div><div class="card" style="text-align:center;color:var(--dim);padding:40px 20px">No lifts logged yet.<br>Head to ＋ and type your first session.</div>`;
+  if(!trainSel || !exs.includes(trainSel)) trainSel = exs[0];
+  const h = exHistory(trainSel);
+  const last = h[h.length-1];
+  const prev = h[h.length-2];
+  const harder = last && prev ? (last.top>prev.top ? "⬆ Heavier than last time" : last.top===prev.top ? (last.sets>prev.sets?"⬆ More sets than last time":"→ Same as last time") : "⬇ Lighter than last time") : "";
+  return `
+  <div class="pagetitle">Training</div>
+  <select onchange="trainSel=this.value;render()" style="width:100%;margin-bottom:12px">
+    ${exs.map(e=>`<option ${e===trainSel?"selected":""}>${esc(e)}</option>`).join("")}
+  </select>
+  <div class="card">
+    <div class="label">${esc(trainSel)} · top working set</div>
+    <div class="bignum">${last?last.top:"–"}<span class="unit"> kg</span></div>
+    ${harder?`<div style="font-size:12.5px;color:${last.top>=(prev?prev.top:0)?'var(--green)':'var(--red)'};margin:4px 0 8px">${harder}</div>`:""}
+    ${lineChart(h.map(x=>({v:x.top,l:fmtD(x.date)})),{color:"#FFF"})}
+  </div>
+  <div class="card">
+    <div class="label">Working sets per session</div>
+    ${barsSets(h)}
+    <div style="font-size:12px;color:var(--dim)">White = 3+ working sets · grey = under</div>
+  </div>`;
+}
+
+function pageNutrition(){
+  const t=todayFoods();
+  const p=t.reduce((s,f)=>s+f.p,0), c=t.reduce((s,f)=>s+f.c,0), fat=t.reduce((s,f)=>s+f.f,0);
+  const cal=t.reduce((s,f)=>s+f.cal,0);
+  const mac=[{name:"Protein",g:p,cal:p*4,color:"#4ECDC4"},{name:"Carbs",g:c,cal:c*4,color:"#FFC85C"},{name:"Fat",g:fat,cal:fat*9,color:"#A78BFA"}];
+  const lib=Object.entries(D.library).slice(-15).reverse();
+  return `
+  <div class="pagetitle">Nutrition</div>
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:10px">
+      ${cal?donut(mac):`<div style="width:140px;height:140px;border-radius:50%;border:14px solid #222"></div>`}
+      <div style="flex:1">
+        <div class="bignum" style="font-size:28px">${cal.toLocaleString()}</div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px">of ${D.settings.cal} cal today</div>
+        ${mac.map(m=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:5px">
+          <span style="color:${m.color}">● ${m.name}</span><span style="color:var(--dim)">${Math.round(m.g)}g</span></div>`).join("")}
+        <div style="font-size:11.5px;color:${p>=D.settings.protein?'var(--green)':'var(--dim)'};margin-top:8px">Protein floor ${D.settings.protein}g ${p>=D.settings.protein?"✓ hit":`· ${Math.max(0,Math.round(D.settings.protein-p))}g to go`}</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="label">Today's food</div>
+    ${t.length? t.map(f=>`<div class="staple"><span>${esc(f.name)}</span><span style="color:var(--dim)">${Math.round(f.cal)} cal</span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Nothing logged today.</div>`}
+  </div>
+  <div class="card">
+    <div class="label">Your staples · auto-learned (${Object.keys(D.library).length})</div>
+    ${lib.length? lib.map(([k,v])=>`<div class="staple"><span style="text-transform:capitalize">${esc(k)}</span>
+      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="delLib('${esc(k).replace(/'/g,"\\'")}')">✕</button></span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Foods you log get remembered here for exact repeat macros.</div>`}
+  </div>`;
+}
+
+function pageGoals(){
+  const w=D.weights.map(x=>({v:x.kg,l:fmtD(x.date)}));
+  const goal=D.goals[D.goals.length-1];
+  const latest=D.weights[D.weights.length-1];
+  return `
+  <div class="pagetitle">Goals</div>
+  <div class="card">
+    <div class="label">Body weight</div>
+    <div class="bignum">${latest?latest.kg:"–"}<span class="unit"> kg</span></div>
+    ${lineChart(w.slice(-20),{color:"#4ECDC4"})}
+    <div class="row" style="margin-top:10px">
+      <input id="win" type="number" inputmode="decimal" step="0.1" placeholder="Log weight (kg)">
+      <button class="btn btn-ghost" style="padding:12px 0" onclick="quickWeight()">Log</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="label">Active goal</div>
+    ${goal?`<div style="font-size:15px;font-weight:700">"${esc(goal.text)}"</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:3px">${goal.target?`target ${esc(goal.target)}`:""} ${goal.by?`· by ${esc(goal.by)}`:""} · set ${fmtD(goal.date)}</div>`
+      :`<div style="color:var(--faint);font-size:13px;margin-bottom:8px">No goal set yet.</div>`}
+    <div style="margin-top:12px"><input id="goaltext" placeholder='e.g. "lose some weight for summer"'></div>
+    <div class="row" style="margin-top:8px">
+      <input id="goaltarget" placeholder="Target (optional, e.g. 73kg)">
+      <input id="goalby" placeholder="By when (optional)">
+    </div>
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="setGoal()">Set goal</button>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span class="label" style="margin:0;letter-spacing:1.5px;color:var(--amber)">AI COACH</span>
+      <button class="btn btn-w" style="width:auto;padding:9px 16px;font-size:13px" onclick="runCoach()" ${coaching?"disabled":""}>${coaching?'<span class="spin"></span>':'Get plan'}</button>
+    </div>
+    ${D.coach?`<div style="font-size:14px;line-height:1.6">${esc(D.coach.text)}</div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">${new Date(D.coach.at).toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`
+      :`<div style="color:var(--faint);font-size:13px">The coach reads your weight trend, calories, and lifts, then gives you a concrete plan for your goal.</div>`}
+  </div>
+  <div class="card">
+    <div class="label">Settings</div>
+    <div class="row">
+      <div><div style="font-size:12px;color:var(--dim);margin-bottom:4px">Calorie target</div>
+      <input id="scal" type="number" inputmode="numeric" value="${D.settings.cal}"></div>
+      <div><div style="font-size:12px;color:var(--dim);margin-bottom:4px">Protein floor (g)</div>
+      <input id="sprot" type="number" inputmode="numeric" value="${D.settings.protein}"></div>
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin:12px 0 4px">Anthropic API key (stays on this device)</div>
+    <input id="skey" type="password" placeholder="sk-ant-..." value="${esc(D.apiKey||"")}">
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="saveSettings()">Save settings</button>
+    <div class="row" style="margin-top:10px">
+      <button class="btn btn-ghost" style="font-size:13px" onclick="exportData()">⬇ Export backup</button>
+      <label class="btn btn-ghost" style="font-size:13px;text-align:center;line-height:1.2;padding-top:14px">⬆ Restore backup<input type="file" accept=".json" style="display:none" onchange="importData(event)"></label>
+    </div>
+    <button class="btn btn-ghost" style="margin-top:10px;color:var(--amber)" onclick="testAPI()">🔧 Test connection</button>
+    <div id="diag" style="font-size:12px;line-height:1.6;color:var(--dim);margin-top:10px;word-break:break-word"></div>
+  </div>`;
+}
+
+/* =============== ACTIONS =============== */
+function removeChip(i){ parsedPending.splice(i,1); if(!parsedPending.length) parsedPending=null; render(); }
+async function delLib(k){ delete D.library[k]; await save(); render(); }
+async function quickWeight(){
+  const v=parseFloat($('win').value);
+  if(!v||v<20||v>400){ toast('Enter a valid weight'); return; }
+  D.weights.push({date:todayISO(), ts:Date.now(), kg:v});
+  await save(); toast('✓ Weight logged'); render();
+}
+async function setGoal(){
+  const text=$('goaltext').value.trim();
+  if(!text){ toast('Describe your goal'); return; }
+  D.goals.push({date:todayISO(), text, target:$('goaltarget').value.trim(), by:$('goalby').value.trim()});
+  await save(); toast('✓ Goal set — ask the coach'); render();
+}
+async function testAPI(){
+  const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
+  out.innerHTML = "Running diagnostics (app v3)…<br>";
+  log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,10))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
+  if(!D.apiKey) return;
+  if(!D.apiKey.startsWith("sk-ant-")) log("• <span style='color:var(--amber)'>Warning: key doesn't start with sk-ant- — is it the right value?</span>");
+  log("• Calling Anthropic API…");
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-api-key":D.apiKey,
+        "anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:20,
+        messages:[{role:"user",content:"Reply with exactly: OK"}]})
+    });
+    log("• HTTP status: "+res.status);
+    const data = await res.json();
+    if(data.error){ log("• <span style='color:var(--red)'>API error: "+esc(data.error.type||"")+" — "+esc(data.error.message||"")+"</span>"); return; }
+    const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+    log("• <span style='color:var(--green)'>SUCCESS — model replied: "+esc(txt)+"</span>");
+    log("Parsing should work. If it still fails, the issue is in JSON handling — tell Claude the exact toast text.");
+  }catch(e){
+    log("• <span style='color:var(--red)'>Network-level failure: "+esc(String(e.message||e))+"</span>");
+    log("This usually means no internet, a content blocker, or the request being blocked before reaching Anthropic.");
+  }
+}
+
+async function saveSettings(){
+  D.settings.cal = parseInt($('scal').value)||2200;
+  D.settings.protein = parseInt($('sprot').value)||150;
+  D.apiKey = $('skey').value.trim();
+  await save(); toast('✓ Settings saved'); render();
+}
+
+/* =============== RENDER =============== */
+function render(){
+  const pages={home:pageHome, log:pageLog, training:pageTraining, nutrition:pageNutrition, goals:pageGoals};
+  $('app').innerHTML = pages[page]();
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===page));
+}
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{ page=b.dataset.p; render(); window.scrollTo(0,0); });
+
+(async()=>{ await load(); render(); })();
+</script>
