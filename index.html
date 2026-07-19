@@ -19,7 +19,7 @@
     font-family:'Inter','SF Pro Display',-apple-system,sans-serif;min-height:100%}
   body{padding-bottom:110px;padding-top:env(safe-area-inset-top)}
   .brand{text-align:center;padding:16px 0 4px}
-  .brand h1{margin:0;font-size:22px;font-weight:800;letter-spacing:6px}
+  .brand img{height:34px;width:auto}
   .wrap{max-width:520px;margin:0 auto;padding:0 16px}
   .pagetitle{font-size:32px;font-weight:700;margin:14px 0 14px}
   .card{background:var(--card);border-radius:24px;padding:18px;margin-bottom:12px}
@@ -75,7 +75,7 @@
 </style>
 
 <div class="toast" id="toast"></div>
-<div class="brand"><h1>HTLT</h1></div>
+<div class="brand"><img src="logo.png" alt="HTLT"></div>
 <div class="wrap" id="app"></div>
 
 <nav id="nav">
@@ -682,7 +682,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v13)…<br>";
+  out.innerHTML = "Running diagnostics (app v14)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
