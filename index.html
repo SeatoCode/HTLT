@@ -276,6 +276,55 @@ Give a concrete, numbers-first plan/check-in in under 120 words. Plain text, no 
   coaching = false; render();
 }
 
+/* =============== EDITING =============== */
+let editLiftIdx = null, editFoodIdx = null, trainDate = null, foodDate = null;
+
+function servAmount(serving){
+  const m = String(serving||"").match(/(\d+(?:\.\d+)?)/);
+  return m ? parseFloat(m[1]) : 1;
+}
+function servReplaceAmount(serving, amt){
+  const s = String(serving||"");
+  return /\d/.test(s) ? s.replace(/\d+(?:\.\d+)?/, String(amt)) : amt + "× " + (s || "serve");
+}
+async function delLift(i){ D.lifts.splice(i,1); editLiftIdx=null; await save(); toast('Removed'); render(); }
+async function saveEditLift(i){
+  const l = D.lifts[i];
+  l.exercise = $('el_ex').value.trim() || l.exercise;
+  l.weightKg = parseFloat($('el_w').value)||0;
+  l.reps = parseInt($('el_r').value)||0;
+  l.sets = parseInt($('el_s').value)||1;
+  l.warmup = $('el_wu').checked;
+  editLiftIdx=null; await save(); toast('✓ Updated'); render();
+}
+async function delFood(i){ D.foods.splice(i,1); editFoodIdx=null; await save(); toast('Removed'); render(); }
+async function dupFood(i){
+  const f = {...D.foods[i], ts:Date.now()};
+  D.foods.splice(i+1,0,f); await save(); toast('✓ Added ×1'); render();
+}
+async function saveEditFood(i){
+  const f = D.foods[i];
+  const oldAmt = servAmount(f.serving);
+  const newAmt = parseFloat($('ef_amt').value)||oldAmt;
+  const ratio = oldAmt>0 ? newAmt/oldAmt : 1;
+  // if user touched the macro fields directly, honour those; else scale by amount
+  const cal=parseFloat($('ef_cal').value), p=parseFloat($('ef_p').value),
+        c=parseFloat($('ef_c').value), fat=parseFloat($('ef_f').value);
+  const macrosEdited = Math.round(cal)!==Math.round(f.cal*ratio)||Math.round(p)!==Math.round(f.p*ratio)||Math.round(c)!==Math.round(f.c*ratio)||Math.round(fat)!==Math.round(f.f*ratio);
+  if(macrosEdited){ f.cal=cal||0; f.p=p||0; f.c=c||0; f.f=fat||0; }
+  else { f.cal=Math.round(f.cal*ratio); f.p=Math.round(f.p*ratio*10)/10; f.c=Math.round(f.c*ratio*10)/10; f.f=Math.round(f.f*ratio*10)/10; }
+  f.name = $('ef_name').value.trim() || f.name;
+  f.serving = servReplaceAmount(f.serving, newAmt);
+  editFoodIdx=null; await save(); toast('✓ Updated'); render();
+}
+function scaleEditFoodPreview(i){
+  const f = D.foods[i];
+  const oldAmt = servAmount(f.serving);
+  const newAmt = parseFloat($('ef_amt').value)||oldAmt;
+  const r = oldAmt>0 ? newAmt/oldAmt : 1;
+  $('ef_cal').value=Math.round(f.cal*r); $('ef_p').value=Math.round(f.p*r*10)/10;
+  $('ef_c').value=Math.round(f.c*r*10)/10; $('ef_f').value=Math.round(f.f*r*10)/10;
+}
 /* =============== DERIVED =============== */
 function todayFoods(){ return D.foods.filter(f=>f.date===todayISO()); }
 function dailyCals(days){
@@ -377,13 +426,13 @@ function macroTile(){
 
 function bigThreeCards(){
   const targets = [
-    {label:"Deadlift", match:/deadlift/i},
-    {label:"Squat", match:/squat/i},
-    {label:"Bench", match:/bench/i},
+    {label:"Deadlift", match:/deadlift/i, exclude:/romanian|rdl|stiff|straight|single/i},
+    {label:"Squat", match:/squat/i, exclude:/split|bulgarian|goblet|hack/i},
+    {label:"Bench", match:/bench/i, exclude:/incline|decline|close/i},
   ];
   return targets.map(t=>{
     // find the user's actual exercise name matching this lift (e.g. "Dumbbell Bench Press")
-    const ex = topExercises().find(e=>t.match.test(e));
+    const ex = topExercises().find(e=>t.match.test(e) && !(t.exclude&&t.exclude.test(e)));
     const h = ex ? exHistory(ex).filter(x=>x.top>0) : [];
     const last = h[h.length-1];
     return `<div class="card">
@@ -559,9 +608,47 @@ function pageLog(){
 }
 
 let trainSel = null;
+
+function sessionLogCard(){
+  const dates = [...new Set(D.lifts.map(l=>l.date))].sort().reverse().slice(0,14);
+  if(!dates.length) return "";
+  if(!trainDate || !dates.includes(trainDate)) trainDate = dates[0];
+  const idxs = D.lifts.map((l,i)=>({l,i})).filter(x=>x.l.date===trainDate);
+  return `<div class="card" style="margin-top:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span class="label" style="margin:0">Session log — tap ✎ to fix</span>
+      <select onchange="trainDate=this.value;editLiftIdx=null;render()" style="width:auto">
+        ${dates.map(d=>`<option value="${d}" ${d===trainDate?"selected":""}>${fmtD(d)}</option>`).join("")}
+      </select>
+    </div>
+    ${idxs.map(({l,i})=> editLiftIdx===i ? `
+      <div class="card2" style="margin-bottom:8px">
+        <input id="el_ex" value="${esc(l.exercise)}" style="margin-bottom:8px">
+        <div class="row" style="gap:8px">
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">kg</div><input id="el_w" type="number" inputmode="decimal" step="0.5" value="${l.weightKg}"></div>
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">reps</div><input id="el_r" type="number" inputmode="numeric" value="${l.reps}"></div>
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">sets</div><input id="el_s" type="number" inputmode="numeric" value="${l.sets}"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-top:10px">
+          <input id="el_wu" type="checkbox" style="width:auto" ${l.warmup?"checked":""}> Warmup set (excluded from stats)
+        </label>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-g" style="padding:11px 0" onclick="saveEditLift(${i})">✓ Save</button>
+          <button class="btn btn-ghost" style="padding:11px 0" onclick="editLiftIdx=null;render()">Cancel</button>
+          <button class="btn btn-ghost" style="padding:11px 0;color:var(--red)" onclick="if(confirm('Delete this entry?'))delLift(${i})">Delete</button>
+        </div>
+      </div>` : `
+      <div class="chip">
+        <div style="flex:1"><div class="t1">${esc(l.exercise)}${l.warmup?' <span style="font-size:9px;color:var(--faint);letter-spacing:1px">WARMUP</span>':''}</div>
+        <div class="t2">${l.weightKg?l.weightKg+"kg × ":""}${l.reps||"?"} rep${l.reps===1?"":"s"} × ${l.sets} set${l.sets===1?"":"s"}</div></div>
+        <button class="x" onclick="editLiftIdx=${i};render()">✎</button>
+      </div>`).join("")}
+  </div>`;
+}
+
 function pageTraining(){
   const exs = topExercises();
-  if(!exs.length) return `<div class="pagetitle">Training</div><div class="card" style="text-align:center;color:var(--dim);padding:40px 20px">No lifts logged yet.<br>Head to ＋ and type your first session.</div>`;
+  if(!exs.length) return `<div class="pagetitle">Training</div>${D.lifts.length?sessionLogCard():`<div class="card" style="text-align:center;color:var(--dim);padding:40px 20px">No lifts logged yet.<br>Head to ＋ and type your first session.</div>`}`;
   if(!trainSel || !exs.includes(trainSel)) trainSel = exs[0];
   const h = exHistory(trainSel);
   const last = h[h.length-1];
@@ -582,6 +669,48 @@ function pageTraining(){
     <div class="label">Working sets per session</div>
     ${barsSets(h)}
     <div style="font-size:12px;color:var(--dim)">Yellow = 3+ working sets · grey = under</div>
+  </div>
+  ${sessionLogCard()}`;
+}
+
+
+function foodLogCard(){
+  const dates = [...new Set(D.foods.map(f=>f.date))].sort().reverse().slice(0,14);
+  if(!foodDate || !dates.includes(foodDate)) foodDate = dates.includes(todayISO())?todayISO():(dates[0]||todayISO());
+  const idxs = D.foods.map((f,i)=>({f,i})).filter(x=>x.f.date===foodDate);
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span class="label" style="margin:0">Food log — ✎ edit · ⧉ add ×1</span>
+      ${dates.length?`<select onchange="foodDate=this.value;editFoodIdx=null;render()" style="width:auto">
+        ${dates.map(d=>`<option value="${d}" ${d===foodDate?"selected":""}>${d===todayISO()?"Today":fmtD(d)}</option>`).join("")}
+      </select>`:""}
+    </div>
+    ${idxs.length? idxs.map(({f,i})=> editFoodIdx===i ? `
+      <div class="card2" style="margin-bottom:8px">
+        <input id="ef_name" value="${esc(f.name)}" style="margin-bottom:8px">
+        <div class="row" style="gap:8px;margin-bottom:8px">
+          <div style="flex:1"><div style="font-size:11px;color:var(--dim);margin-bottom:3px">Amount (${esc(f.serving||"serve")})</div>
+          <input id="ef_amt" type="number" inputmode="decimal" step="any" value="${servAmount(f.serving)}" oninput="scaleEditFoodPreview(${i})"></div>
+        </div>
+        <div class="row" style="gap:8px">
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">cal</div><input id="ef_cal" type="number" value="${Math.round(f.cal)}"></div>
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">P</div><input id="ef_p" type="number" step="any" value="${f.p}"></div>
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">C</div><input id="ef_c" type="number" step="any" value="${f.c}"></div>
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">F</div><input id="ef_f" type="number" step="any" value="${f.f}"></div>
+        </div>
+        <div style="font-size:11px;color:var(--faint);margin-top:6px">Change Amount to rescale macros automatically (g → grams, scoops → count). Or type macros directly.</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-g" style="padding:11px 0" onclick="saveEditFood(${i})">✓ Save</button>
+          <button class="btn btn-ghost" style="padding:11px 0" onclick="editFoodIdx=null;render()">Cancel</button>
+          <button class="btn btn-ghost" style="padding:11px 0;color:var(--red)" onclick="if(confirm('Remove this food?'))delFood(${i})">Delete</button>
+        </div>
+      </div>` : `
+      <div class="chip">
+        <div style="flex:1"><div class="t1">${esc(f.name)}</div>
+        <div class="t2">${esc(f.serving||"")} · ${Math.round(f.cal)} cal · ${Math.round(f.p)}P ${Math.round(f.c)}C ${Math.round(f.f)}F</div></div>
+        <button class="x" onclick="dupFood(${i})" title="Add another">⧉</button>
+        <button class="x" onclick="editFoodIdx=${i};render()">✎</button>
+      </div>`).join("") : `<div style="color:var(--faint);font-size:13px">Nothing logged on this day.</div>`}
   </div>`;
 }
 
@@ -605,10 +734,7 @@ function pageNutrition(){
       </div>
     </div>
   </div>
-  <div class="card">
-    <div class="label">Today's food</div>
-    ${t.length? t.map(f=>`<div class="staple"><span>${esc(f.name)}</span><span style="color:var(--dim)">${Math.round(f.cal)} cal</span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Nothing logged today.</div>`}
-  </div>
+  ${foodLogCard()}
   <div class="card">
     <div class="label">Your staples · auto-learned (${Object.keys(D.library).length})</div>
     ${lib.length? lib.map(([k,v])=>`<div class="staple"><span style="text-transform:capitalize">${esc(k)}</span>
@@ -689,7 +815,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v21)…<br>";
+  out.innerHTML = "Running diagnostics (app v23)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
