@@ -12,7 +12,7 @@
   :root{
     --bg:#000; --card:#141414; --card2:#1C1C1E; --line:#262628;
     --text:#FFF; --dim:#8E8E93; --faint:#5A5A5E;
-    --green:#5BD98A; --red:#FF6B6B; --teal:#4ECDC4; --amber:#FFC85C; --violet:#A78BFA;
+    --green:#5BD98A; --red:#FF6B6B; --teal:#4ECDC4; --amber:#FFD600; --violet:#A78BFA;
   }
   *{box-sizing:border-box;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -23,6 +23,12 @@
   .wrap{max-width:520px;margin:0 auto;padding:0 16px}
   .pagetitle{font-size:32px;font-weight:700;margin:14px 0 14px}
   .card{background:var(--card);border-radius:24px;padding:18px;margin-bottom:12px}
+  .card-y{background:var(--amber);color:#131000;--text:#131000;--dim:rgba(19,16,0,.6);--faint:rgba(19,16,0,.42);--line:rgba(19,16,0,.15)}
+  .card-w{background:#F4F4F6;color:#131313;--text:#131313;--dim:rgba(0,0,0,.55);--faint:rgba(0,0,0,.38);--line:rgba(0,0,0,.12)}
+  .card-y .dot{background:rgba(19,16,0,.16)}
+  .card-y .dot.on{background:#131000}
+  .card-w .dot{background:rgba(0,0,0,.12)}
+  .card-w .dot.on{background:#131313}
   .card2{background:var(--card2);border-radius:16px;padding:12px}
   .label{font-size:13px;color:var(--dim);margin-bottom:8px}
   .bignum{font-size:32px;font-weight:700}
@@ -37,7 +43,7 @@
     font-family:inherit;font-size:15px;padding:10px 12px;width:100%}
   .btn{border:none;border-radius:16px;padding:14px 0;font-weight:700;font-size:15px;
     cursor:pointer;font-family:inherit;width:100%}
-  .btn-w{background:#FFF;color:#000}
+  .btn-w{background:var(--amber);color:#1A1400}
   .btn-g{background:var(--green);color:#052912}
   .btn-ghost{background:var(--card2);color:var(--text)}
   .btn:disabled{opacity:.45}
@@ -49,16 +55,17 @@
   .x{background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer;padding:4px}
   nav{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#161616;
     border-radius:28px;display:flex;padding:4px 6px;border:1px solid #222;z-index:50}
-  nav button{background:none;border:none;color:var(--faint);font-size:19px;padding:10px 15px;
-    border-radius:20px;cursor:pointer}
-  nav button.on{color:#FFF;background:#2A2A2C}
+  nav button{background:none;border:none;color:var(--faint);padding:10px 14px;
+    border-radius:20px;cursor:pointer;display:flex;align-items:center}
+  nav button svg{width:21px;height:21px}
+  nav button.on{color:var(--amber);background:#2A2A2C}
   .hide{display:none!important}
   .spin{display:inline-block;width:16px;height:16px;border:2px solid #555;border-top-color:#fff;
     border-radius:50%;animation:sp .7s linear infinite;vertical-align:-3px}
   @keyframes sp{to{transform:rotate(360deg)}}
   .dotgrid{display:grid;grid-template-columns:repeat(7,7px);gap:5px;justify-content:center}
   .dot{width:5px;height:5px;border-radius:3px;background:#2A2A2C}
-  .dot.on{background:#FFF}
+  .dot.on{background:var(--amber)}
   .staple{font-size:13.5px;padding:9px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
   .staple:last-child{border-bottom:none}
   .toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#1E1E1E;
@@ -70,7 +77,7 @@
   .seg{display:flex;background:var(--card2);border-radius:14px;padding:3px;margin-bottom:12px}
   .seg button{flex:1;border:none;background:none;color:var(--dim);font-family:inherit;
     font-size:13px;font-weight:600;padding:8px 0;border-radius:11px;cursor:pointer}
-  .seg button.on{background:#333;color:#fff}
+  .seg button.on{background:#4A3F00;color:var(--amber)}
   @media (prefers-reduced-motion: reduce){.spin{animation:none}}
 </style>
 
@@ -79,12 +86,12 @@
 <div class="wrap" id="app"></div>
 
 <nav id="nav">
-  <button data-p="home">⌂</button>
-  <button data-p="progress">📊</button>
-  <button data-p="log">＋</button>
-  <button data-p="training">🏋</button>
-  <button data-p="nutrition">◔</button>
-  <button data-p="goals">◎</button>
+  <button data-p="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg></button>
+  <button data-p="progress" aria-label="Progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg></button>
+  <button data-p="log" aria-label="Log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+  <button data-p="training" aria-label="Training"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12h2"/><path d="M20 12h2"/><rect x="4" y="8" width="3" height="8" rx="1"/><rect x="17" y="8" width="3" height="8" rx="1"/><path d="M7 12h10"/></svg></button>
+  <button data-p="nutrition" aria-label="Nutrition"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 3a9 9 0 0 1 9 9h-9z"/></svg></button>
+  <button data-p="goals" aria-label="Goals"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg></button>
 </nav>
 
 <script>
@@ -316,7 +323,7 @@ function barsSets(hist, target=3){
     const x=10+(w-20)*i/Math.max(hist.length-1,1)-bw/2;
     const bh=(h-30)*Math.min(p.sets,target)/target;
     const hit=p.sets>=target;
-    return `<rect x="${Math.max(2,x).toFixed(1)}" y="${(h-20-bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx="6" fill="${hit?'#FFF':'#48484A'}"/>
+    return `<rect x="${Math.max(2,x).toFixed(1)}" y="${(h-20-bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx="6" fill="${hit?'var(--amber)':'#48484A'}"/>
       <text x="${(Math.max(2,x)+bw/2).toFixed(1)}" y="${h-6}" fill="var(--faint)" font-size="9" text-anchor="middle">${esc(fmtD(p.date))}</text>`;
   }).join("");
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto"><line x1="10" x2="${w-10}" y1="${h-20-(h-30)}" y2="${h-20-(h-30)}" stroke="var(--faint)" stroke-dasharray="4 4" stroke-width="1"/>${bars}</svg>`;
@@ -353,7 +360,7 @@ function macroTile(){
   const t=todayFoods();
   const p=t.reduce((s,f)=>s+f.p,0), c=t.reduce((s,f)=>s+f.c,0), fat=t.reduce((s,f)=>s+f.f,0);
   const cal=t.reduce((s,f)=>s+f.cal,0);
-  const mac=[{name:"Protein",g:p,cal:p*4,color:"#4ECDC4"},{name:"Carbs",g:c,cal:c*4,color:"#FFC85C"},{name:"Fat",g:fat,cal:fat*9,color:"#A78BFA"}];
+  const mac=[{name:"Protein",g:p,cal:p*4,color:"var(--amber)"},{name:"Carbs",g:c,cal:c*4,color:"#FFFFFF"},{name:"Fat",g:fat,cal:fat*9,color:"#6E6E73"}];
   return `<div class="card">
     <div style="display:flex;align-items:center;gap:10px">
       ${cal?donut(mac):`<div style="width:140px;height:140px;border-radius:50%;border:14px solid #222;flex-shrink:0"></div>`}
@@ -384,7 +391,7 @@ function bigThreeCards(){
         <div class="label" style="margin-bottom:6px">${esc(ex||t.label)}</div>
         <div style="font-size:20px;font-weight:700">${last?last.top+'<span class="unit"> kg</span>':'<span style="color:var(--faint);font-size:13px;font-weight:400">not logged yet</span>'}</div>
       </div>
-      ${h.length?lineChart(h.slice(-12).map(x=>({v:x.top,l:fmtD(x.date)})),{h:100,color:"#FFF"}):
+      ${h.length?lineChart(h.slice(-12).map(x=>({v:x.top,l:fmtD(x.date)})),{h:100,color:"var(--amber)"}):
         `<div style="color:var(--faint);font-size:12px;padding:8px 0">Log ${esc(t.label.toLowerCase())} sessions with weights to build this chart.</div>`}
     </div>`;
   }).join("");
@@ -404,7 +411,7 @@ function pageHome(){
       <div style="font-size:12px;color:var(--dim)">all time</div></div>
     </div>
   </div>
-  <div class="label" style="margin:18px 4px 10px;letter-spacing:1.5px">THE BIG THREE</div>
+  <div class="label" style="margin:18px 4px 10px;letter-spacing:1.5px;color:var(--amber)">THE BIG THREE</div>
   ${bigThreeCards()}`;
 }
 
@@ -435,7 +442,7 @@ function barChart(points,{h=130,target=null}={}){
   const bars=points.map((p,i)=>{
     const x=15+(w-30)*(points.length>1?i/(points.length-1):0.5)-bw/2;
     const bh=(h-34)*p.v/vmax;
-    return `<rect x="${x.toFixed(1)}" y="${(h-22-bh).toFixed(1)}" width="${bw}" height="${Math.max(bh,1).toFixed(1)}" rx="4" fill="${p.v?'#FFC85C':'#2A2A2C'}"/>
+    return `<rect x="${x.toFixed(1)}" y="${(h-22-bh).toFixed(1)}" width="${bw}" height="${Math.max(bh,1).toFixed(1)}" rx="4" fill="${p.v?'var(--amber)':'#2A2A2C'}"/>
       ${p.l!==undefined?`<text x="${(x+bw/2).toFixed(1)}" y="${h-7}" fill="var(--faint)" font-size="8.5" text-anchor="middle">${esc(p.l)}</text>`:""}`;
   }).join("");
   const tline = target?`<line x1="12" x2="${w-12}" y1="${(h-22-(h-34)*target/vmax).toFixed(1)}" y2="${(h-22-(h-34)*target/vmax).toFixed(1)}" stroke="var(--faint)" stroke-dasharray="4 4" stroke-width="1"/>`:"";
@@ -492,15 +499,15 @@ function pageProgress(){
       ${wDelta!==null?`<div style="font-size:13px;font-weight:600;color:${wDelta<=0?'var(--green)':'var(--amber)'}">${wDelta>0?"↑":"↓"} ${Math.abs(wDelta).toFixed(1)} kg <span style="color:var(--faint);font-weight:400">vs last period</span></div>`:""}
     </div>
     <div class="bignum" style="margin:4px 0 6px">${wAvg?wAvg.toFixed(1):"–"}<span class="unit"> kg avg</span></div>
-    ${lineChart(wNow.map(x=>({v:x.kg,l:fmtD(x.date)})),{color:"#4ECDC4",h:110})}
+    ${lineChart(wNow.map(x=>({v:x.kg,l:fmtD(x.date)})),{color:"var(--amber)",h:110})}
   </div>
   <div class="row">
-    <div class="card" style="margin-bottom:12px">
+    <div class="card card-y" style="margin-bottom:12px">
       <div class="label">Streak</div>
       <div class="bignum">${logStreak()}<span class="unit"> days</span></div>
       <div style="font-size:12px;color:var(--dim)">${logStreak()>0?"Keep it up!":"Log today to start one"}</div>
     </div>
-    <div class="card" style="margin-bottom:12px">
+    <div class="card card-w" style="margin-bottom:12px">
       <div class="label">Daily goal</div>
       <div class="bignum">${goalPct}<span class="unit">%</span></div>
       <div style="font-size:12px;color:${goalPct>=70?'var(--green)':'var(--dim)'}">${goalPct>=70?"On track!":"days at/under target"}</div>
@@ -569,12 +576,12 @@ function pageTraining(){
     <div class="label">${esc(trainSel)} · top working set</div>
     <div class="bignum">${last?last.top:"–"}<span class="unit"> kg</span></div>
     ${harder?`<div style="font-size:12.5px;color:${last.top>=(prev?prev.top:0)?'var(--green)':'var(--red)'};margin:4px 0 8px">${harder}</div>`:""}
-    ${lineChart(h.map(x=>({v:x.top,l:fmtD(x.date)})),{color:"#FFF"})}
+    ${lineChart(h.map(x=>({v:x.top,l:fmtD(x.date)})),{color:"var(--amber)"})}
   </div>
   <div class="card">
     <div class="label">Working sets per session</div>
     ${barsSets(h)}
-    <div style="font-size:12px;color:var(--dim)">White = 3+ working sets · grey = under</div>
+    <div style="font-size:12px;color:var(--dim)">Yellow = 3+ working sets · grey = under</div>
   </div>`;
 }
 
@@ -582,7 +589,7 @@ function pageNutrition(){
   const t=todayFoods();
   const p=t.reduce((s,f)=>s+f.p,0), c=t.reduce((s,f)=>s+f.c,0), fat=t.reduce((s,f)=>s+f.f,0);
   const cal=t.reduce((s,f)=>s+f.cal,0);
-  const mac=[{name:"Protein",g:p,cal:p*4,color:"#4ECDC4"},{name:"Carbs",g:c,cal:c*4,color:"#FFC85C"},{name:"Fat",g:fat,cal:fat*9,color:"#A78BFA"}];
+  const mac=[{name:"Protein",g:p,cal:p*4,color:"var(--amber)"},{name:"Carbs",g:c,cal:c*4,color:"#FFFFFF"},{name:"Fat",g:fat,cal:fat*9,color:"#6E6E73"}];
   const lib=Object.entries(D.library).slice(-15).reverse();
   return `
   <div class="pagetitle">Nutrition</div>
@@ -618,7 +625,7 @@ function pageGoals(){
   <div class="card">
     <div class="label">Body weight</div>
     <div class="bignum">${latest?latest.kg:"–"}<span class="unit"> kg</span></div>
-    ${lineChart(w.slice(-20),{color:"#4ECDC4"})}
+    ${lineChart(w.slice(-20),{color:"var(--amber)"})}
     <div class="row" style="margin-top:10px">
       <input id="win" type="number" inputmode="decimal" step="0.1" placeholder="Log weight (kg)">
       <button class="btn btn-ghost" style="padding:12px 0" onclick="quickWeight()">Log</button>
@@ -682,7 +689,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v14)…<br>";
+  out.innerHTML = "Running diagnostics (app v21)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
