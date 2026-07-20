@@ -674,17 +674,19 @@ function pageTraining(){
 }
 
 
+function foodsOn(d){ return D.foods.filter(f=>f.date===d); }
+function shiftFoodDate(n){
+  const cur = foodDate || todayISO();
+  const d = new Date(cur+"T12:00"); d.setDate(d.getDate()+n);
+  const iso = localISO(d);
+  if(iso > todayISO()) return;
+  foodDate = iso; editFoodIdx=null; render();
+}
 function foodLogCard(){
-  const dates = [...new Set(D.foods.map(f=>f.date))].sort().reverse().slice(0,14);
-  if(!foodDate || !dates.includes(foodDate)) foodDate = dates.includes(todayISO())?todayISO():(dates[0]||todayISO());
+  if(!foodDate) foodDate = todayISO();
   const idxs = D.foods.map((f,i)=>({f,i})).filter(x=>x.f.date===foodDate);
   return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <span class="label" style="margin:0">Food log — ✎ edit · ⧉ add ×1</span>
-      ${dates.length?`<select onchange="foodDate=this.value;editFoodIdx=null;render()" style="width:auto">
-        ${dates.map(d=>`<option value="${d}" ${d===foodDate?"selected":""}>${d===todayISO()?"Today":fmtD(d)}</option>`).join("")}
-      </select>`:""}
-    </div>
+    <div class="label">Food log — ✎ edit · ⧉ add ×1</div>
     ${idxs.length? idxs.map(({f,i})=> editFoodIdx===i ? `
       <div class="card2" style="margin-bottom:8px">
         <input id="ef_name" value="${esc(f.name)}" style="margin-bottom:8px">
@@ -710,24 +712,34 @@ function foodLogCard(){
         <div class="t2">${esc(f.serving||"")} · ${Math.round(f.cal)} cal · ${Math.round(f.p)}P ${Math.round(f.c)}C ${Math.round(f.f)}F</div></div>
         <button class="x" onclick="dupFood(${i})" title="Add another">⧉</button>
         <button class="x" onclick="editFoodIdx=${i};render()">✎</button>
-      </div>`).join("") : `<div style="color:var(--faint);font-size:13px">Nothing logged on this day.</div>`}
+      </div>`).join("") : `<div style="color:var(--faint);font-size:13px">Nothing logged this day. Entries parsed today always save to today — past days can only be edited, not added to (yet).</div>`}
   </div>`;
 }
 
 function pageNutrition(){
-  const t=todayFoods();
+  if(!foodDate) foodDate = todayISO();
+  const t=foodsOn(foodDate);
+  const isToday = foodDate===todayISO();
   const p=t.reduce((s,f)=>s+f.p,0), c=t.reduce((s,f)=>s+f.c,0), fat=t.reduce((s,f)=>s+f.f,0);
   const cal=t.reduce((s,f)=>s+f.cal,0);
   const mac=[{name:"Protein",g:p,cal:p*4,color:"var(--amber)"},{name:"Carbs",g:c,cal:c*4,color:"#FFFFFF"},{name:"Fat",g:fat,cal:fat*9,color:"#6E6E73"}];
   const lib=Object.entries(D.library).slice(-15).reverse();
   return `
   <div class="pagetitle">Nutrition</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin:-6px 0 12px">
+    <button class="btn btn-ghost" style="width:44px;padding:10px 0;font-size:16px" onclick="shiftFoodDate(-1)">‹</button>
+    <div style="text-align:center">
+      <div style="font-size:15px;font-weight:700">${isToday?"Today":fmtD(foodDate)}</div>
+      <div style="font-size:11px;color:var(--faint)">${esc(foodDate)}</div>
+    </div>
+    <button class="btn btn-ghost" style="width:44px;padding:10px 0;font-size:16px;${isToday?'opacity:.3;pointer-events:none;':''}" onclick="shiftFoodDate(1)">›</button>
+  </div>
   <div class="card">
     <div style="display:flex;align-items:center;gap:10px">
       ${cal?donut(mac):`<div style="width:140px;height:140px;border-radius:50%;border:14px solid #222"></div>`}
       <div style="flex:1">
         <div class="bignum" style="font-size:28px">${cal.toLocaleString()}</div>
-        <div style="font-size:12px;color:var(--dim);margin-bottom:8px">of ${D.settings.cal} cal today</div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px">of ${D.settings.cal} cal ${isToday?'today':'this day'}</div>
         ${mac.map(m=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:5px">
           <span style="color:${m.color}">● ${m.name}</span><span style="color:var(--dim)">${Math.round(m.g)}g</span></div>`).join("")}
         <div style="font-size:11.5px;color:${p>=D.settings.protein?'var(--green)':'var(--dim)'};margin-top:8px">Protein floor ${D.settings.protein}g ${p>=D.settings.protein?"✓ hit":`· ${Math.max(0,Math.round(D.settings.protein-p))}g to go`}</div>
@@ -815,7 +827,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v23)…<br>";
+  out.innerHTML = "Running diagnostics (app v24)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
