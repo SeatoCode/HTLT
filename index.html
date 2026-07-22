@@ -103,7 +103,7 @@ window.onerror = function(msg, src, line, col){
 </script>
 <script>
 /* =============== STATE =============== */
-let D = { lifts:[], foods:[], weights:[], library:{}, goals:[], settings:{cal:2200, protein:150}, coach:null };
+let D = { lifts:[], foods:[], weights:[], library:{}, goals:[], settings:{cal:2200, protein:150}, coach:null, bigThree:["Deadlift","Squat","Bench"] };
 let page = "home";
 let parsedPending = null;
 let parsing = false, coaching = false;
@@ -425,25 +425,40 @@ function macroTile(){
 }
 
 function bigThreeCards(){
-  const targets = [
-    {label:"Deadlift", match:/deadlift/i, exclude:/romanian|rdl|stiff|straight|single/i},
-    {label:"Squat", match:/squat/i, exclude:/split|bulgarian|goblet|hack/i},
-    {label:"Bench", match:/bench/i, exclude:/incline|decline|close/i},
-  ];
-  return targets.map(t=>{
-    // find the user's actual exercise name matching this lift (e.g. "Dumbbell Bench Press")
-    const ex = topExercises().find(e=>t.match.test(e) && !(t.exclude&&t.exclude.test(e)));
-    const h = ex ? exHistory(ex).filter(x=>x.top>0) : [];
+  return (D.bigThree||["Deadlift","Squat","Bench"]).map((exName,slot)=>{
+    const h = exHistory(exName).filter(x=>x.top>0);
     const last = h[h.length-1];
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <div class="label" style="margin-bottom:6px">${esc(ex||t.label)}</div>
-        <div style="font-size:20px;font-weight:700">${last?last.top+'<span class="unit"> kg</span>':'<span style="color:var(--faint);font-size:13px;font-weight:400">not logged yet</span>'}</div>
+        <div class="label" style="margin-bottom:6px">${esc(exName)}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:20px;font-weight:700">${last?last.top+'<span class="unit"> kg</span>':'<span style="color:var(--faint);font-size:13px;font-weight:400">not logged yet</span>'}</div>
+          <button class="x" onclick="openBigThreePicker(${slot})" title="Change exercise">⚙</button>
+        </div>
       </div>
       ${h.length?lineChart(h.slice(-12).map(x=>({v:x.top,l:fmtD(x.date)})),{h:100,color:"var(--amber)"}):
-        `<div style="color:var(--faint);font-size:12px;padding:8px 0">Log ${esc(t.label.toLowerCase())} sessions with weights to build this chart.</div>`}
+        `<div style="color:var(--faint);font-size:12px;padding:8px 0">No sessions logged for this exercise yet.</div>`}
     </div>`;
   }).join("");
+}
+let bigThreePickerSlot = null;
+function openBigThreePicker(slot){ bigThreePickerSlot = slot; render(); }
+function bigThreePickerModal(){
+  if(bigThreePickerSlot===null) return "";
+  const exs = topExercises();
+  return `<div class="card" style="border:1px solid var(--amber)">
+    <div class="label" style="color:var(--amber)">Choose exercise for slot ${bigThreePickerSlot+1}</div>
+    ${exs.length? exs.map(e=>`<div class="chip" style="cursor:pointer" onclick="setBigThree(${bigThreePickerSlot},'${esc(e).replace(/'/g,"\\'")}')">
+      <div class="t1" style="flex:1">${esc(e)}</div>${D.bigThree[bigThreePickerSlot]===e?'<span style="color:var(--amber)">✓</span>':''}
+    </div>`).join("") : `<div style="color:var(--faint);font-size:13px">Log some lifts first so there's something to pick from.</div>`}
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="bigThreePickerSlot=null;render()">Cancel</button>
+  </div>`;
+}
+async function setBigThree(slot, name){
+  D.bigThree = D.bigThree||["Deadlift","Squat","Bench"];
+  D.bigThree[slot] = name;
+  bigThreePickerSlot = null;
+  await save(); toast('✓ Updated'); render();
 }
 
 function pageHome(){
@@ -461,7 +476,7 @@ function pageHome(){
     </div>
   </div>
   <div class="label" style="margin:18px 4px 10px;letter-spacing:1.5px;color:var(--amber)">THE BIG THREE</div>
-  ${bigThreeCards()}`;
+  ${bigThreePickerModal()}${bigThreeCards()}`;
 }
 
 let progRange = 7;
@@ -748,9 +763,10 @@ function pageNutrition(){
   </div>
   ${foodLogCard()}
   <div class="card">
-    <div class="label">Your staples · auto-learned (${Object.keys(D.library).length})</div>
-    ${lib.length? lib.map(([k,v])=>`<div class="staple"><span style="text-transform:capitalize">${esc(k)}</span>
-      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="delLib('${esc(k).replace(/'/g,"\\'")}')">✕</button></span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Foods you log get remembered here for exact repeat macros.</div>`}
+    <div class="label">Your staples · tap to add to ${isToday?"today":fmtD(foodDate)} (${Object.keys(D.library).length})</div>
+    ${lib.length? lib.map(([k,v])=>`<div class="staple" style="cursor:pointer" onclick="quickAddStaple('${esc(k).replace(/'/g,"\\'")}')">
+      <span style="text-transform:capitalize">➕ ${esc(k)}</span>
+      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="event.stopPropagation();delLib('${esc(k).replace(/'/g,"\\'")}')">✕</button></span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Foods you log get remembered here for exact repeat macros.</div>`}
   </div>`;
 }
 
@@ -812,6 +828,13 @@ function pageGoals(){
 
 /* =============== ACTIONS =============== */
 function removeChip(i){ parsedPending.splice(i,1); if(!parsedPending.length) parsedPending=null; render(); }
+async function quickAddStaple(key){
+  const lib = D.library[key];
+  if(!lib) return;
+  const date = foodDate || todayISO();
+  D.foods.push({date, ts:Date.now(), name:key, serving:lib.serving||"", cal:lib.cal||0, p:lib.p||0, c:lib.c||0, f:lib.f||0});
+  await save(); toast('✓ Added to '+(date===todayISO()?"today":fmtD(date))); render();
+}
 async function delLib(k){ delete D.library[k]; await save(); render(); }
 async function quickWeight(){
   const v=parseFloat($('win').value);
@@ -827,7 +850,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v24)…<br>";
+  out.innerHTML = "Running diagnostics (app v25)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
