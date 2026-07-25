@@ -16,8 +16,10 @@
   }
   *{box-sizing:border-box;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
-    font-family:'Inter','SF Pro Display',-apple-system,sans-serif;min-height:100%}
-  body{padding-bottom:110px;padding-top:env(safe-area-inset-top)}
+    font-family:'Inter','SF Pro Display',-apple-system,sans-serif;
+    height:100%;height:100dvh;overflow:hidden;overscroll-behavior:none}
+  #scroller{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:110px}
+  body{padding-top:env(safe-area-inset-top)}
   .brand{text-align:center;padding:16px 0 4px}
   .brand img{height:34px;width:auto}
   .wrap{max-width:520px;margin:0 auto;padding:0 16px}
@@ -53,7 +55,7 @@
   .chip .t2{font-size:11.5px;color:var(--dim)}
   .tag{font-size:9px;letter-spacing:1px;border-radius:6px;padding:3px 7px;border:1px solid}
   .x{background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer;padding:4px}
-  nav{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#161616;
+  nav{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#161616;
     border-radius:28px;display:flex;padding:4px 6px;border:1px solid #222;z-index:50}
   nav button{background:none;border:none;color:var(--faint);padding:10px 14px;
     border-radius:20px;cursor:pointer;display:flex;align-items:center}
@@ -82,8 +84,10 @@
 </style>
 
 <div class="toast" id="toast"></div>
+<div id="scroller">
 <div class="brand"><img src="logo.png" alt="HTLT"></div>
 <div class="wrap" id="app"></div>
+</div>
 
 <nav id="nav">
   <button data-p="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg></button>
@@ -340,9 +344,13 @@ function topExercises(){
 function exHistory(ex){
   const byDate={};
   D.lifts.filter(l=>l.exercise===ex && !l.warmup).forEach(l=>{
-    if(!byDate[l.date]) byDate[l.date]={date:l.date, top:0, sets:0};
-    byDate[l.date].top = Math.max(byDate[l.date].top, l.weightKg);
+    if(!byDate[l.date]) byDate[l.date]={date:l.date, top:0, topReps:0, topSets:0, sets:0, volume:0};
     byDate[l.date].sets += l.sets;
+    byDate[l.date].volume += l.weightKg * l.reps * l.sets;
+    // track reps/sets that belong to the heaviest set-group of the day (not just any reps)
+    if(l.weightKg > byDate[l.date].top || (l.weightKg===byDate[l.date].top && l.reps>byDate[l.date].topReps)){
+      byDate[l.date].top = l.weightKg; byDate[l.date].topReps = l.reps; byDate[l.date].topSets = l.sets;
+    }
   });
   return Object.values(byDate).sort((a,b)=>a.date<b.date?-1:1);
 }
@@ -431,8 +439,9 @@ function bigThreeCards(){
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
         <div class="label" style="margin-bottom:6px">${esc(exName)}</div>
-        <div style="display:flex;align-items:center;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:6px">
           <div style="font-size:20px;font-weight:700">${last?last.top+'<span class="unit"> kg</span>':'<span style="color:var(--faint);font-size:13px;font-weight:400">not logged yet</span>'}</div>
+          ${last&&last.topReps?`<div style="font-size:11.5px;color:var(--dim)">${last.topReps}R × ${last.topSets}S</div>`:""}
           <button class="x" onclick="openBigThreePicker(${slot})" title="Change exercise">⚙</button>
         </div>
       </div>
@@ -676,7 +685,10 @@ function pageTraining(){
   </select>
   <div class="card">
     <div class="label">${esc(trainSel)} · top working set</div>
-    <div class="bignum">${last?last.top:"–"}<span class="unit"> kg</span></div>
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <div class="bignum">${last?last.top:"–"}<span class="unit"> kg</span></div>
+      ${last&&last.topReps?`<div style="font-size:13px;color:var(--dim)">${last.topReps} reps × ${last.topSets} set${last.topSets===1?"":"s"}</div>`:""}
+    </div>
     ${harder?`<div style="font-size:12.5px;color:${last.top>=(prev?prev.top:0)?'var(--green)':'var(--red)'};margin:4px 0 8px">${harder}</div>`:""}
     ${lineChart(h.map(x=>({v:x.top,l:fmtD(x.date)})),{color:"var(--amber)"})}
   </div>
@@ -685,7 +697,23 @@ function pageTraining(){
     ${barsSets(h)}
     <div style="font-size:12px;color:var(--dim)">Yellow = 3+ working sets · grey = under</div>
   </div>
+  ${volumeCard(h)}
   ${sessionLogCard()}`;
+}
+function volumeCard(h){
+  if(h.length<1) return "";
+  const last=h[h.length-1], prev=h[h.length-2];
+  const delta = prev ? Math.round(last.volume-prev.volume) : null;
+  const pct = prev&&prev.volume ? Math.round((last.volume-prev.volume)/prev.volume*100) : null;
+  return `<div class="card" style="margin-top:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="label" style="margin:0">Volume per session · kg × reps × sets</div>
+      ${delta!==null?`<div style="font-size:12.5px;font-weight:600;color:${delta>=0?'var(--green)':'var(--red)'}">${delta>=0?"⬆":"⬇"} ${Math.abs(delta).toLocaleString()}kg ${pct!==null?`(${pct>=0?"+":""}${pct}%)`:""} vs last</div>`:""}
+    </div>
+    <div class="bignum" style="margin:4px 0 6px">${Math.round(last.volume).toLocaleString()}<span class="unit"> kg total</span></div>
+    ${lineChart(h.map(x=>({v:x.volume,l:fmtD(x.date)})),{color:"var(--amber)"})}
+    <div style="font-size:11.5px;color:var(--faint)">Total work done that session — catches progress even when top weight looks flat.</div>
+  </div>`;
 }
 
 
@@ -850,7 +878,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v25)…<br>";
+  out.innerHTML = "Running diagnostics (app v29)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
@@ -878,7 +906,7 @@ function render(){
   $('app').innerHTML = pages[page]();
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===page));
 }
-document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{ page=b.dataset.p; render(); window.scrollTo(0,0); });
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{ page=b.dataset.p; render(); const sc=$('scroller'); if(sc) sc.scrollTop=0; });
 
 (async()=>{ await load(); render(); })();
 </script>
