@@ -18,9 +18,9 @@
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
     font-family:'Inter','SF Pro Display',-apple-system,sans-serif;
     height:100%;height:100dvh;overflow:hidden;overscroll-behavior:none}
-  #scroller{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:110px}
-  body{padding-top:env(safe-area-inset-top)}
-  .brand{text-align:center;padding:16px 0 4px}
+  #scroller{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding-top:calc(12px + env(safe-area-inset-top));padding-bottom:110px}
+  .brand{text-align:center;padding:2px 0 4px}
   .brand img{height:34px;width:auto}
   .wrap{max-width:520px;margin:0 auto;padding:0 16px}
   .pagetitle{font-size:32px;font-weight:700;margin:14px 0 14px}
@@ -118,6 +118,12 @@ const todayISO = () => localISO();
 const daysAgoISO = n => localISO(new Date(Date.now()-n*864e5));
 const fmtD = iso => { const d=new Date(iso+"T12:00"); return d.toLocaleDateString('en-AU',{day:'numeric',month:'short'}); };
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// For text embedded inside onclick="fn('...')" attributes: must JS-escape quotes/backslashes
+// FIRST, then only HTML-escape &, <, " (never the apostrophe — HTML entity-decoding runs
+// before JS parses the handler, so &#39; silently becomes ' again and breaks the string).
+const jsAttr = s => String(s??"")
+  .replace(/\\/g,"\\\\").replace(/'/g,"\\'")
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 const TAGC = {WORK:'var(--amber)',WARMUP:'var(--faint)',LIBRARY:'var(--teal)',EST:'var(--violet)',LABEL:'var(--green)'};
 
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
@@ -457,7 +463,7 @@ function bigThreePickerModal(){
   const exs = topExercises();
   return `<div class="card" style="border:1px solid var(--amber)">
     <div class="label" style="color:var(--amber)">Choose exercise for slot ${bigThreePickerSlot+1}</div>
-    ${exs.length? exs.map(e=>`<div class="chip" style="cursor:pointer" onclick="setBigThree(${bigThreePickerSlot},'${esc(e).replace(/'/g,"\\'")}')">
+    ${exs.length? exs.map(e=>`<div class="chip" style="cursor:pointer" onclick="setBigThree(${bigThreePickerSlot},'${jsAttr(e)}')">
       <div class="t1" style="flex:1">${esc(e)}</div>${D.bigThree[bigThreePickerSlot]===e?'<span style="color:var(--amber)">✓</span>':''}
     </div>`).join("") : `<div style="color:var(--faint);font-size:13px">Log some lifts first so there's something to pick from.</div>`}
     <button class="btn btn-ghost" style="margin-top:8px" onclick="bigThreePickerSlot=null;render()">Cancel</button>
@@ -792,9 +798,9 @@ function pageNutrition(){
   ${foodLogCard()}
   <div class="card">
     <div class="label">Your staples · tap to add to ${isToday?"today":fmtD(foodDate)} (${Object.keys(D.library).length})</div>
-    ${lib.length? lib.map(([k,v])=>`<div class="staple" style="cursor:pointer" onclick="quickAddStaple('${esc(k).replace(/'/g,"\\'")}')">
+    ${lib.length? lib.map(([k,v])=>`<div class="staple" style="cursor:pointer" onclick="quickAddStaple('${jsAttr(k)}')">
       <span style="text-transform:capitalize">➕ ${esc(k)}</span>
-      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="event.stopPropagation();delLib('${esc(k).replace(/'/g,"\\'")}')">✕</button></span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Foods you log get remembered here for exact repeat macros.</div>`}
+      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="event.stopPropagation();delLib('${jsAttr(k)}')">✕</button></span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Foods you log get remembered here for exact repeat macros.</div>`}
   </div>`;
 }
 
@@ -878,7 +884,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v29)…<br>";
+  out.innerHTML = "Running diagnostics (app v31)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
