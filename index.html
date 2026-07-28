@@ -375,6 +375,7 @@ function attachSwipe(){
     el.addEventListener('touchstart', e=>{
       const t=e.touches[0]; startX=t.clientX; startY=t.clientY; dx=0; dragging=true; decided=false; horizontal=false;
       el.style.transition='none';
+      if(bgL) bgL.style.opacity=0; if(bgR) bgR.style.opacity=0;
     }, {passive:true});
     el.addEventListener('touchmove', e=>{
       if(!dragging) return;
@@ -1032,11 +1033,11 @@ async function toggleFavorite(key){
 function favouritesCard(){
   const favs = (D.favorites||[]).filter(k=>D.library[k]);
   return `<div class="card">
-    <div class="label">★ Favourites · tap to add · swipe left to unfavourite</div>
+    <div class="label">★ Favourites · tap to add · swipe left to delete</div>
     ${favs.length? favs.map(k=>{ const v=D.library[k]; return `
       <div class="swiperow">
         <div class="swipe-bg swipe-bg-l">${ICONS.star} Favourite</div>
-        <div class="swipe-bg swipe-bg-r">Unfavourite ${ICONS.trash}</div>
+        <div class="swipe-bg swipe-bg-r">Delete ${ICONS.trash}</div>
         <div class="staple swipe-el" data-swipe-kind="favorite" data-swipe-key="${esc(k)}" style="cursor:pointer" onclick="quickAddStaple('${jsAttr(k)}')">
           <span style="text-transform:capitalize">➕ ${esc(k)}</span>
           <span style="color:var(--dim)">${Math.round(v.cal)} cal</span>
@@ -1162,7 +1163,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v36)…<br>";
+  out.innerHTML = "Running diagnostics (app v37)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
