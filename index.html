@@ -53,9 +53,17 @@
     background:var(--card2);margin-bottom:6px}
   .chip .t1{font-size:14px;font-weight:600}
   .chip .t2{font-size:11.5px;color:var(--dim)}
+  .swiperow{position:relative;border-radius:14px;margin-bottom:6px;overflow:hidden}
+  .swiperow .chip{margin-bottom:0;position:relative;z-index:1;touch-action:pan-y;will-change:transform}
+  .swipe-bg-l,.swipe-bg-r{position:absolute;inset:0;display:flex;align-items:center;
+    font-size:13px;font-weight:700;border-radius:14px}
+  .swipe-bg-l{background:var(--amber);color:#1A1400;padding-left:18px}
+  .swipe-bg-r{background:var(--red);color:#fff;justify-content:flex-end;padding-right:18px}
   .tag{font-size:9px;letter-spacing:1px;border-radius:6px;padding:3px 7px;border:1px solid}
   .x{background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer;padding:4px}
-  nav{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#161616;
+  .navfade{position:fixed;left:0;right:0;bottom:0;height:130px;pointer-events:none;
+    background:linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,.75) 55%, #000 100%);z-index:40}
+  nav{position:fixed;bottom:calc(8px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#161616;
     border-radius:28px;display:flex;padding:4px 6px;border:1px solid #222;z-index:50}
   nav button{background:none;border:none;color:var(--faint);padding:10px 14px;
     border-radius:20px;cursor:pointer;display:flex;align-items:center}
@@ -89,6 +97,7 @@
 <div class="wrap" id="app"></div>
 </div>
 
+<div class="navfade"></div>
 <nav id="nav">
   <button data-p="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg></button>
   <button data-p="progress" aria-label="Progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg></button>
@@ -107,7 +116,7 @@ window.onerror = function(msg, src, line, col){
 </script>
 <script>
 /* =============== STATE =============== */
-let D = { lifts:[], foods:[], weights:[], library:{}, goals:[], settings:{cal:2200, protein:150}, coach:null, bigThree:["Deadlift","Squat","Bench"] };
+let D = { lifts:[], foods:[], weights:[], library:{}, goals:[], settings:{cal:2200, protein:150}, coach:null, bigThree:["Deadlift","Squat","Bench"], favorites:[] };
 let page = "home";
 let parsedPending = null;
 let parsing = false, coaching = false;
@@ -118,6 +127,11 @@ const todayISO = () => localISO();
 const daysAgoISO = n => localISO(new Date(Date.now()-n*864e5));
 const fmtD = iso => { const d=new Date(iso+"T12:00"); return d.toLocaleDateString('en-AU',{day:'numeric',month:'short'}); };
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ICONS = {
+  gear: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+  eye: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  eyeOff: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>`,
+};
 // For text embedded inside onclick="fn('...')" attributes: must JS-escape quotes/backslashes
 // FIRST, then only HTML-escape &, <, " (never the apostrophe — HTML entity-decoding runs
 // before JS parses the handler, so &#39; silently becomes ' again and breaks the string).
@@ -126,7 +140,12 @@ const jsAttr = s => String(s??"")
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 const TAGC = {WORK:'var(--amber)',WARMUP:'var(--faint)',LIBRARY:'var(--teal)',EST:'var(--violet)',LABEL:'var(--green)'};
 
-function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.onclick=null; t.style.cursor=''; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+function undoToast(msg, onUndo){
+  const t=$('toast'); t.textContent=msg+"  ·  tap to undo"; t.style.cursor='pointer';
+  t.onclick=()=>{ t.classList.remove('show'); onUndo(); };
+  t.classList.add('show'); setTimeout(()=>{ t.classList.remove('show'); t.onclick=null; },4000);
+}
 
 async function load(){
   try{ const r = localStorage.getItem('htlt:data'); if(r){ D = Object.assign(D, JSON.parse(r)); } }
@@ -223,7 +242,7 @@ ${libSummary}
 
 Rules:
 - Lifts: one object per set-group. Fields: type:"lift", exercise (canonical name, e.g. "Squat", "Lat Pulldown"), weightKg (number, or 0 if not stated), reps (number, or 0 if not stated), sets (number, default 1), warmup (true/false). "100kg squat for 3" = 1 set of 3 unless sets stated. Tag WORK or WARMUP. An exercise mentioned with NO weight/reps (e.g. just "Lat pulldowns") is still a lift — include it with weightKg 0, reps 0, detail "logged, no numbers".
-- Foods: type:"food", name, serving (text), cal, p, c, f (grams, numbers). Estimate for cooked weights unless stated raw. Use library match if close (tag LIBRARY), else estimate (tag EST). Australian products where relevant (e.g. KFC Australia menu items — estimate the full meal including sides and drink unless stated otherwise).
+- Foods: type:"food", name, serving (text), cal, p, c, f, sugar, satFat (all grams except cal, all numbers). Estimate for cooked weights unless stated raw. Use library match if close (tag LIBRARY), else estimate (tag EST). Australian products where relevant (e.g. KFC Australia menu items — estimate the full meal including sides and drink unless stated otherwise). Estimate sugar and satFat reasonably even when not label-sourced — use 0 only if genuinely negligible (e.g. plain meat, black coffee).
 - Bodyweight: type:"weight", kg (number). Only if user states their bodyweight.
 - Session labels ("PUSH DAY", "Breakfast", "Lunch"), and notes like "no deadlifts" are context, NOT items — use them to interpret, don't output them.
 - Every item gets: label (short display name), detail (short display string), tag.
@@ -252,10 +271,10 @@ async function saveParsed(){
     if(it.type==="lift"){
       D.lifts.push({date, ts, exercise:it.exercise, weightKg:+it.weightKg||0, reps:+it.reps||0, sets:+it.sets||1, warmup:!!it.warmup});
     }else if(it.type==="food"){
-      const f = {date, ts, name:it.name, serving:it.serving||"", cal:+it.cal||0, p:+it.p||0, c:+it.c||0, f:+it.f||0};
+      const f = {date, ts, name:it.name, serving:it.serving||"", cal:+it.cal||0, p:+it.p||0, c:+it.c||0, f:+it.f||0, sugar:+it.sugar||0, satFat:+it.satFat||0};
       D.foods.push(f);
       const key = (it.name||"").toLowerCase().trim();
-      if(key && !D.library[key]) D.library[key] = {cal:f.cal, p:f.p, c:f.c, f:f.f, serving:f.serving};
+      if(key && !D.library[key]) D.library[key] = {cal:f.cal, p:f.p, c:f.c, f:f.f, sugar:f.sugar, satFat:f.satFat, serving:f.serving};
     }else if(it.type==="weight" && it.kg){
       D.weights.push({date, ts, kg:+it.kg});
     }
@@ -308,9 +327,56 @@ async function saveEditLift(i){
   editLiftIdx=null; await save(); toast('✓ Updated'); render();
 }
 async function delFood(i){ D.foods.splice(i,1); editFoodIdx=null; await save(); toast('Removed'); render(); }
-async function dupFood(i){
-  const f = {...D.foods[i], ts:Date.now()};
-  D.foods.splice(i+1,0,f); await save(); toast('✓ Added ×1'); render();
+let lastDeletedFood = null;
+async function deleteFoodBySwipe(i){
+  lastDeletedFood = {item: D.foods[i], index: i};
+  D.foods.splice(i,1);
+  await save();
+  undoToast('Food removed', undoDeleteFood);
+  render();
+}
+async function undoDeleteFood(){
+  if(!lastDeletedFood) return;
+  D.foods.splice(Math.min(lastDeletedFood.index, D.foods.length), 0, lastDeletedFood.item);
+  lastDeletedFood = null;
+  await save(); render();
+}
+async function favoriteFoodBySwipe(i){
+  const f = D.foods[i]; if(!f) return;
+  const key = (f.name||"").toLowerCase().trim(); if(!key) return;
+  if(!D.library[key]) D.library[key] = {cal:f.cal, p:f.p, c:f.c, f:f.f, sugar:f.sugar||0, satFat:f.satFat||0, serving:f.serving||""};
+  D.favorites = D.favorites||[];
+  if(!D.favorites.includes(key)) D.favorites.push(key);
+  await save(); toast('★ Added to favourites'); render();
+}
+function attachFoodSwipe(){
+  document.querySelectorAll('#app .food-swipe').forEach(el=>{
+    const idx = parseInt(el.dataset.foodIdx,10);
+    let startX=0, startY=0, dx=0, dragging=false, decided=false, horizontal=false;
+    el.addEventListener('touchstart', e=>{
+      const t=e.touches[0]; startX=t.clientX; startY=t.clientY; dx=0; dragging=true; decided=false; horizontal=false;
+      el.style.transition='none';
+    }, {passive:true});
+    el.addEventListener('touchmove', e=>{
+      if(!dragging) return;
+      const t=e.touches[0]; dx=t.clientX-startX; const dy=t.clientY-startY;
+      if(!decided && (Math.abs(dx)>8||Math.abs(dy)>8)){ decided=true; horizontal=Math.abs(dx)>Math.abs(dy); }
+      if(horizontal){
+        e.preventDefault();
+        el.style.transform = `translateX(${Math.max(-100,Math.min(100,dx))}px)`;
+      }
+    }, {passive:false});
+    const finish = ()=>{
+      if(!dragging) return; dragging=false;
+      el.style.transition='transform .2s ease';
+      if(horizontal && Math.abs(dx)>68){
+        if(dx<0){ el.style.transform='translateX(-100%)'; setTimeout(()=>deleteFoodBySwipe(idx),140); }
+        else { el.style.transform='translateX(0)'; favoriteFoodBySwipe(idx); }
+      } else { el.style.transform='translateX(0)'; }
+    };
+    el.addEventListener('touchend', finish);
+    el.addEventListener('touchcancel', ()=>{ dragging=false; el.style.transform='translateX(0)'; });
+  });
 }
 async function saveEditFood(i){
   const f = D.foods[i];
@@ -319,10 +385,11 @@ async function saveEditFood(i){
   const ratio = oldAmt>0 ? newAmt/oldAmt : 1;
   // if user touched the macro fields directly, honour those; else scale by amount
   const cal=parseFloat($('ef_cal').value), p=parseFloat($('ef_p').value),
-        c=parseFloat($('ef_c').value), fat=parseFloat($('ef_f').value);
+        c=parseFloat($('ef_c').value), fat=parseFloat($('ef_f').value),
+        sugar=parseFloat($('ef_sugar').value)||0, satFat=parseFloat($('ef_satfat').value)||0;
   const macrosEdited = Math.round(cal)!==Math.round(f.cal*ratio)||Math.round(p)!==Math.round(f.p*ratio)||Math.round(c)!==Math.round(f.c*ratio)||Math.round(fat)!==Math.round(f.f*ratio);
-  if(macrosEdited){ f.cal=cal||0; f.p=p||0; f.c=c||0; f.f=fat||0; }
-  else { f.cal=Math.round(f.cal*ratio); f.p=Math.round(f.p*ratio*10)/10; f.c=Math.round(f.c*ratio*10)/10; f.f=Math.round(f.f*ratio*10)/10; }
+  if(macrosEdited){ f.cal=cal||0; f.p=p||0; f.c=c||0; f.f=fat||0; f.sugar=sugar; f.satFat=satFat; }
+  else { f.cal=Math.round(f.cal*ratio); f.p=Math.round(f.p*ratio*10)/10; f.c=Math.round(f.c*ratio*10)/10; f.f=Math.round(f.f*ratio*10)/10; f.sugar=Math.round((f.sugar||0)*ratio*10)/10; f.satFat=Math.round((f.satFat||0)*ratio*10)/10; }
   f.name = $('ef_name').value.trim() || f.name;
   f.serving = servReplaceAmount(f.serving, newAmt);
   editFoodIdx=null; await save(); toast('✓ Updated'); render();
@@ -334,6 +401,8 @@ function scaleEditFoodPreview(i){
   const r = oldAmt>0 ? newAmt/oldAmt : 1;
   $('ef_cal').value=Math.round(f.cal*r); $('ef_p').value=Math.round(f.p*r*10)/10;
   $('ef_c').value=Math.round(f.c*r*10)/10; $('ef_f').value=Math.round(f.f*r*10)/10;
+  if($('ef_sugar')) $('ef_sugar').value=Math.round((f.sugar||0)*r*10)/10;
+  if($('ef_satfat')) $('ef_satfat').value=Math.round((f.satFat||0)*r*10)/10;
 }
 /* =============== DERIVED =============== */
 function todayFoods(){ return D.foods.filter(f=>f.date===todayISO()); }
@@ -419,22 +488,40 @@ function dotMonths(){
 }
 
 /* =============== PAGES =============== */
-function macroTile(){
-  const t=todayFoods();
+let macroExpanded = false;
+function macroTile(foods, dayLabel){
+  const t = foods || todayFoods();
+  const label = dayLabel || "today";
   const p=t.reduce((s,f)=>s+f.p,0), c=t.reduce((s,f)=>s+f.c,0), fat=t.reduce((s,f)=>s+f.f,0);
+  const sugar=t.reduce((s,f)=>s+(f.sugar||0),0), satFat=t.reduce((s,f)=>s+(f.satFat||0),0);
   const cal=t.reduce((s,f)=>s+f.cal,0);
   const mac=[{name:"Protein",g:p,cal:p*4,color:"var(--amber)"},{name:"Carbs",g:c,cal:c*4,color:"#FFFFFF"},{name:"Fat",g:fat,cal:fat*9,color:"#6E6E73"}];
-  return `<div class="card">
+  const pct = v => cal ? Math.round(v*100/cal) : 0;
+  return `<div class="card" style="cursor:pointer" onclick="macroExpanded=!macroExpanded;render()">
     <div style="display:flex;align-items:center;gap:10px">
       ${cal?donut(mac):`<div style="width:140px;height:140px;border-radius:50%;border:14px solid #222;flex-shrink:0"></div>`}
       <div style="flex:1">
         <div class="bignum" style="font-size:26px">${cal.toLocaleString()}</div>
-        <div style="font-size:12px;color:var(--dim);margin-bottom:6px">of ${D.settings.cal} cal today</div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:6px">of ${D.settings.cal} cal ${esc(label)}</div>
         ${mac.map(m=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:4px">
           <span style="color:${m.color}">● ${m.name}</span><span style="color:var(--dim)">${Math.round(m.g)}g</span></div>`).join("")}
         <div style="font-size:11.5px;color:${p>=D.settings.protein?'var(--green)':'var(--dim)'};margin-top:7px">Protein floor ${D.settings.protein}g ${p>=D.settings.protein?"✓ hit":`· ${Math.max(0,Math.round(D.settings.protein-p))}g to go`}</div>
       </div>
     </div>
+    <div style="text-align:center;font-size:11px;color:var(--faint);margin-top:8px">${macroExpanded?"▲ tap to collapse":"▼ tap for full breakdown"}</div>
+    ${macroExpanded?`
+    <div class="card2" style="margin-top:10px">
+      ${[
+        ["Protein", p, pct(p*4), null],
+        ["Carbs", c, pct(c*4), null],
+        ["— of which sugars", sugar, null, 'sub'],
+        ["Fat", fat, pct(fat*9), null],
+        ["— of which saturates", satFat, null, 'sub'],
+      ].map(([lbl,g,percent,sub])=>`<div style="display:flex;justify-content:space-between;font-size:${sub?'12px':'13px'};color:${sub?'var(--dim)':'var(--text)'};padding:${sub?'3px 0 3px 10px':'5px 0'}">
+        <span>${lbl}</span><span>${Math.round(g*10)/10}g${percent!==null?` <span style="color:var(--faint)">· ${percent}%</span>`:""}</span>
+      </div>`).join("")}
+      <div style="font-size:10.5px;color:var(--faint);margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">Sugar/sat fat are estimates unless sourced from a scanned label.</div>
+    </div>`:""}
   </div>`;
 }
 
@@ -448,7 +535,7 @@ function bigThreeCards(){
         <div style="display:flex;align-items:baseline;gap:6px">
           <div style="font-size:20px;font-weight:700">${last?last.top+'<span class="unit"> kg</span>':'<span style="color:var(--faint);font-size:13px;font-weight:400">not logged yet</span>'}</div>
           ${last&&last.topReps?`<div style="font-size:11.5px;color:var(--dim)">${last.topReps}R × ${last.topSets}S</div>`:""}
-          <button class="x" onclick="openBigThreePicker(${slot})" title="Change exercise">⚙</button>
+          <button class="x" onclick="openBigThreePicker(${slot})" title="Change exercise">${ICONS.gear}</button>
         </div>
       </div>
       ${h.length?lineChart(h.slice(-12).map(x=>({v:x.top,l:fmtD(x.date)})),{h:100,color:"var(--amber)"}):
@@ -476,25 +563,65 @@ async function setBigThree(slot, name){
   await save(); toast('✓ Updated'); render();
 }
 
-function pageHome(){
-  const w=D.weights[D.weights.length-1];
-  const t=todayFoods(); const cal=t.reduce((s,f)=>s+f.cal,0);
-  const todayLifts=[...new Set(D.lifts.filter(l=>l.date===todayISO()).map(l=>l.exercise))];
-  return `
-  <div class="pagetitle">Today</div>
-  ${macroTile()}
-  <div class="card">${dotMonths()}
+function defaultHomeLayout(){ return [{id:'macro',on:true},{id:'sessions',on:true},{id:'bigthree',on:true},{id:'weight',on:false},{id:'calorieintake',on:false},{id:'weighttrend',on:false}]; }
+const homeTileDefs = {
+  macro:{label:"Calorie Macros", render:()=>macroTile()},
+  sessions:{label:"Sessions Logged", render:()=>`<div class="card">${dotMonths()}
     <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
       <div class="bignum" style="font-size:24px">${sessionDates().length}</div>
       <div><div style="font-size:14px;font-weight:600">Sessions logged</div>
       <div style="font-size:12px;color:var(--dim)">all time</div></div>
     </div>
-  </div>
-  <div class="label" style="margin:18px 4px 10px;letter-spacing:1.5px;color:var(--amber)">THE BIG THREE</div>
-  ${bigThreePickerModal()}${bigThreeCards()}`;
+  </div>`},
+  bigthree:{label:"The Big Three", render:()=>`<div class="label" style="margin:18px 4px 10px;letter-spacing:1.5px;color:var(--amber)">THE BIG THREE</div>
+    ${bigThreePickerModal()}${bigThreeCards()}`},
+  weight:{label:"Body Weight", render:()=>{ const w=D.weights[D.weights.length-1];
+    return `<div class="card"><div class="bignum">${w?w.kg:"–"}<span class="unit"> kg</span></div>
+    <div style="font-size:14px;font-weight:600;margin-top:4px">Body Weight</div>
+    <div style="font-size:12px;color:var(--dim)">${w?fmtD(w.date):"not logged"}</div></div>`; }},
+  calorieintake:{label:"Calorie Intake", render:()=>calorieIntakeCard(homeRange,true)},
+  weighttrend:{label:"Weight Trend", render:()=>weightTrendCard(homeRange,true)},
+};
+let homeEditMode = false;
+async function moveHomeTile(i, dir){
+  const arr = D.homeLayout; const j = i+dir;
+  if(j<0||j>=arr.length) return;
+  [arr[i],arr[j]] = [arr[j],arr[i]];
+  await save(); render();
+}
+async function toggleHomeTile(i){
+  D.homeLayout[i].on = !D.homeLayout[i].on;
+  await save(); render();
+}
+function pageHome(){
+  if(!D.homeLayout) D.homeLayout = defaultHomeLayout();
+  else { Object.keys(homeTileDefs).forEach(id=>{ if(!D.homeLayout.find(t=>t.id===id)) D.homeLayout.push({id,on:false}); }); }
+  const layout = D.homeLayout;
+  const header = `<div class="pagetitle" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <span>Today</span>
+    <button class="x" style="font-size:13px;display:flex;align-items:center;gap:5px" onclick="homeEditMode=!homeEditMode;render()">${homeEditMode?"✓ Done":`${ICONS.gear} Edit tiles`}</button>
+  </div>`;
+  if(homeEditMode){
+    return header + layout.map((t,i)=>{
+      const def = homeTileDefs[t.id]; if(!def) return "";
+      return `<div style="opacity:${t.on?1:0.4};margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;background:var(--card2);border-radius:12px;padding:8px 12px;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:600">${esc(def.label)}</span>
+          <div style="display:flex;gap:4px">
+            <button class="x" onclick="moveHomeTile(${i},-1)" ${i===0?"disabled":""}>↑</button>
+            <button class="x" onclick="moveHomeTile(${i},1)" ${i===layout.length-1?"disabled":""}>↓</button>
+            <button class="x" onclick="toggleHomeTile(${i})">${t.on?ICONS.eye:ICONS.eyeOff}</button>
+          </div>
+        </div>
+        <div style="pointer-events:none">${def.render()}</div>
+      </div>`;
+    }).join("") + `<div style="font-size:11.5px;color:var(--faint);text-align:center;margin-top:6px">↑↓ reorder · eye icon hides/shows a tile · tap "Done" when finished</div>`;
+  }
+  return header + layout.filter(t=>t.on).map(t=>homeTileDefs[t.id]?homeTileDefs[t.id].render():"").join("");
 }
 
 let progRange = 7;
+async function setProgRange(v){ progRange=v; render(); }
 function calByDay(nDays){
   const out=[];
   for(let i=nDays-1;i>=0;i--){
@@ -527,25 +654,56 @@ function barChart(points,{h=130,target=null}={}){
   const tline = target?`<line x1="12" x2="${w-12}" y1="${(h-22-(h-34)*target/vmax).toFixed(1)}" y2="${(h-22-(h-34)*target/vmax).toFixed(1)}" stroke="var(--faint)" stroke-dasharray="4 4" stroke-width="1"/>`:"";
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto">${tline}${bars}</svg>`;
 }
-function pageProgress(){
-  const n=progRange;
+let homeRange = 7;
+async function setHomeRange(v){ homeRange=v; render(); }
+function rangeSeg(current, setterName){
+  return `<div class="seg" style="margin-bottom:10px">${[[7,"Week"],[30,"Month"],[90,"3 Months"]].map(([v,l])=>`<button class="${current===v?'on':''}" onclick="${setterName}(${v})">${l}</button>`).join("")}</div>`;
+}
+function calorieIntakeCard(range, showToggle){
+  const n=range;
   const days=calByDay(n);
   const logged=days.filter(d=>d.cal>0);
   const avg=logged.length?logged.reduce((s,d)=>s+d.cal,0)/logged.length:0;
-  // previous period comparison
   const prevDays=[]; for(let i=2*n-1;i>=n;i--){const d=daysAgoISO(i);prevDays.push(D.foods.filter(f=>f.date===d).reduce((s,f)=>s+f.cal,0));}
   const prevLogged=prevDays.filter(c=>c>0);
   const prevAvg=prevLogged.length?prevLogged.reduce((a,b)=>a+b,0)/prevLogged.length:0;
   const calDelta=prevAvg?Math.round((avg-prevAvg)/prevAvg*100):null;
   const dayL=d=>"SMTWTFS"[new Date(d+"T12:00").getDay()];
-  // weight
+  return `<div class="card">
+    ${showToggle?rangeSeg(range,"setHomeRange"):""}
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="label" style="margin:0">Calorie intake</div>
+      ${calDelta!==null?`<div style="font-size:13px;font-weight:600;color:${calDelta<=0?'var(--green)':'var(--amber)'}">${calDelta>0?"↑":"↓"} ${Math.abs(calDelta)}% <span style="color:var(--faint);font-weight:400">vs last period</span></div>`:""}
+    </div>
+    <div class="bignum" style="margin:4px 0 6px">${Math.round(avg).toLocaleString()}<span class="unit"> cal avg</span></div>
+    ${barChart(days.map((d,i)=>({v:d.cal, l:(n<=7||i%Math.ceil(n/7)===0)?dayL(d.date):undefined})),{target:D.settings.cal})}
+    <div style="font-size:11.5px;color:var(--faint)">Dashed line = your ${D.settings.cal} cal target</div>
+  </div>`;
+}
+function weightTrendCard(range, showToggle){
+  const n=range;
   const wCut=Date.now()-n*864e5, wPrevCut=Date.now()-2*n*864e5;
   const wNow=D.weights.filter(x=>x.ts>=wCut), wPrev=D.weights.filter(x=>x.ts>=wPrevCut&&x.ts<wCut);
   const wAvg=wNow.length?wNow.reduce((s,x)=>s+x.kg,0)/wNow.length:0;
   const wPrevAvg=wPrev.length?wPrev.reduce((s,x)=>s+x.kg,0)/wPrev.length:0;
   const wDelta=(wAvg&&wPrevAvg)?(wAvg-wPrevAvg):null;
+  return `<div class="card">
+    ${showToggle?rangeSeg(range,"setHomeRange"):""}
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="label" style="margin:0">Weight trend</div>
+      ${wDelta!==null?`<div style="font-size:13px;font-weight:600;color:${wDelta<=0?'var(--green)':'var(--amber)'}">${wDelta>0?"↑":"↓"} ${Math.abs(wDelta).toFixed(1)} kg <span style="color:var(--faint);font-weight:400">vs last period</span></div>`:""}
+    </div>
+    <div class="bignum" style="margin:4px 0 6px">${wAvg?wAvg.toFixed(1):"–"}<span class="unit"> kg avg</span></div>
+    ${lineChart(wNow.map(x=>({v:x.kg,l:fmtD(x.date)})),{color:"var(--amber)",h:110})}
+  </div>`;
+}
+function pageProgress(){
+  const n=progRange;
+  const days=calByDay(n);
+  const logged=days.filter(d=>d.cal>0);
   // goal %
   const goalPct=logged.length?Math.round(100*logged.filter(d=>d.cal<=D.settings.cal*1.05).length/logged.length):0;
+  const wCut=Date.now()-n*864e5;
   // insights
   const t=todayFoods();
   const pSum=D.foods.filter(f=>f.ts>=wCut).reduce((s,f)=>s+f.p,0), cSum=D.foods.filter(f=>f.ts>=wCut).reduce((s,f)=>s+f.c,0), fSum=D.foods.filter(f=>f.ts>=wCut).reduce((s,f)=>s+f.f,0);
@@ -560,26 +718,9 @@ function pageProgress(){
   return `
   <div class="pagetitle">Your progress</div>
   <div style="font-size:13px;color:var(--dim);margin:-8px 0 12px">Small steps, big changes.</div>
-  <div class="seg">
-    ${[[7,"Week"],[30,"Month"],[90,"3 Months"]].map(([v,l])=>`<button class="${progRange===v?'on':''}" onclick="progRange=${v};render()">${l}</button>`).join("")}
-  </div>
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:baseline">
-      <div class="label" style="margin:0">Calories intake</div>
-      ${calDelta!==null?`<div style="font-size:13px;font-weight:600;color:${calDelta<=0?'var(--green)':'var(--amber)'}">${calDelta>0?"↑":"↓"} ${Math.abs(calDelta)}% <span style="color:var(--faint);font-weight:400">vs last period</span></div>`:""}
-    </div>
-    <div class="bignum" style="margin:4px 0 6px">${Math.round(avg).toLocaleString()}<span class="unit"> cal avg</span></div>
-    ${barChart(days.map((d,i)=>({v:d.cal, l:(n<=7||i%Math.ceil(n/7)===0)?dayL(d.date):undefined})),{target:D.settings.cal})}
-    <div style="font-size:11.5px;color:var(--faint)">Dashed line = your ${D.settings.cal} cal target</div>
-  </div>
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:baseline">
-      <div class="label" style="margin:0">Weight trend</div>
-      ${wDelta!==null?`<div style="font-size:13px;font-weight:600;color:${wDelta<=0?'var(--green)':'var(--amber)'}">${wDelta>0?"↑":"↓"} ${Math.abs(wDelta).toFixed(1)} kg <span style="color:var(--faint);font-weight:400">vs last period</span></div>`:""}
-    </div>
-    <div class="bignum" style="margin:4px 0 6px">${wAvg?wAvg.toFixed(1):"–"}<span class="unit"> kg avg</span></div>
-    ${lineChart(wNow.map(x=>({v:x.kg,l:fmtD(x.date)})),{color:"var(--amber)",h:110})}
-  </div>
+  ${rangeSeg(progRange,"setProgRange")}
+  ${calorieIntakeCard(progRange,false)}
+  ${weightTrendCard(progRange,false)}
   <div class="row">
     <div class="card card-y" style="margin-bottom:12px">
       <div class="label">Streak</div>
@@ -676,9 +817,60 @@ function sessionLogCard(){
   </div>`;
 }
 
+let manualOpen=false, manualEx=null, manualPrefill=null;
+function openManualAdd(){ manualOpen=true; manualEx=null; manualPrefill=null; render(); }
+function cancelManualAdd(){ manualOpen=false; manualEx=null; manualPrefill=null; render(); }
+function pickKnownExercise(name){
+  manualEx=name;
+  const h=exHistory(name); const last=h[h.length-1];
+  manualPrefill = last ? {w:last.top, r:last.topReps||5, s:last.topSets||3} : {w:0,r:5,s:3};
+  render();
+}
+function useTypedExercise(){
+  const v=($('qa_name')?.value||"").trim();
+  if(!v){ toast('Type an exercise name'); return; }
+  pickKnownExercise(v);
+}
+async function saveManualLift(){
+  if(!manualEx) return;
+  const w=parseFloat($('qa_w').value)||0, r=parseInt($('qa_r').value)||0, s=parseInt($('qa_s').value)||1, warm=$('qa_warm').checked;
+  D.lifts.push({date:todayISO(), ts:Date.now(), exercise:manualEx, weightKg:w, reps:r, sets:s, warmup:warm});
+  trainSel = manualEx;
+  manualOpen=false; manualEx=null; manualPrefill=null;
+  await save(); toast('✓ Logged'); render();
+}
+function manualAddCard(){
+  if(!manualOpen) return `<button class="btn btn-ghost" style="margin-top:12px" onclick="openManualAdd()">+ Add exercise (no AI)</button>`;
+  if(!manualEx){
+    const known = topExercises();
+    return `<div class="card" style="margin-top:12px">
+      <div class="label">Add a movement</div>
+      <input id="qa_name" placeholder="Type an exercise name…">
+      <button class="btn btn-w" style="margin-top:8px" onclick="useTypedExercise()">Use this name</button>
+      ${known.length?`<div style="font-size:11px;color:var(--dim);margin:12px 0 6px">Or pick a known movement:</div>
+      ${known.map(e=>`<div class="chip" style="cursor:pointer" onclick="pickKnownExercise('${jsAttr(e)}')"><div class="t1" style="flex:1">${esc(e)}</div></div>`).join("")}`:""}
+      <button class="btn btn-ghost" style="margin-top:10px" onclick="cancelManualAdd()">Cancel</button>
+    </div>`;
+  }
+  return `<div class="card" style="margin-top:12px">
+    <div class="label">${esc(manualEx)}${manualPrefill&&manualPrefill.w?` <span style="color:var(--faint);font-weight:400">· last time: ${manualPrefill.w}kg ${manualPrefill.r}R × ${manualPrefill.s}S</span>`:""}</div>
+    <div class="row" style="gap:8px">
+      <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">kg</div><input id="qa_w" type="number" inputmode="decimal" step="0.5" value="${manualPrefill?manualPrefill.w:0}"></div>
+      <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">reps</div><input id="qa_r" type="number" inputmode="numeric" value="${manualPrefill?manualPrefill.r:5}"></div>
+      <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">sets</div><input id="qa_s" type="number" inputmode="numeric" value="${manualPrefill?manualPrefill.s:3}"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-top:10px">
+      <input id="qa_warm" type="checkbox" style="width:auto"> Warmup set (excluded from stats)
+    </label>
+    <div class="row" style="margin-top:10px">
+      <button class="btn btn-g" style="padding:11px 0" onclick="saveManualLift()">✓ Log to today</button>
+      <button class="btn btn-ghost" style="padding:11px 0" onclick="cancelManualAdd()">Cancel</button>
+    </div>
+  </div>`;
+}
 function pageTraining(){
   const exs = topExercises();
-  if(!exs.length) return `<div class="pagetitle">Training</div>${D.lifts.length?sessionLogCard():`<div class="card" style="text-align:center;color:var(--dim);padding:40px 20px">No lifts logged yet.<br>Head to ＋ and type your first session.</div>`}`;
+  if(!exs.length) return `<div class="pagetitle">Training</div>${D.lifts.length?sessionLogCard():`<div class="card" style="text-align:center;color:var(--dim);padding:40px 20px">No lifts logged yet.<br>Head to ＋ to parse a session, or add one manually below.</div>`}${manualAddCard()}`;
   if(!trainSel || !exs.includes(trainSel)) trainSel = exs[0];
   const h = exHistory(trainSel);
   const last = h[h.length-1];
@@ -704,7 +896,8 @@ function pageTraining(){
     <div style="font-size:12px;color:var(--dim)">Yellow = 3+ working sets · grey = under</div>
   </div>
   ${volumeCard(h)}
-  ${sessionLogCard()}`;
+  ${sessionLogCard()}
+  ${manualAddCard()}`;
 }
 function volumeCard(h){
   if(h.length<1) return "";
@@ -731,11 +924,21 @@ function shiftFoodDate(n){
   if(iso > todayISO()) return;
   foodDate = iso; editFoodIdx=null; render();
 }
+function classifyFood(f){
+  if(!f.cal) return null;
+  const proteinPct = (f.p*4)/f.cal;
+  const sugarPct = ((f.sugar||0)*4)/f.cal;
+  const fatPct = (f.f*9)/f.cal;
+  const satFatPct = ((f.satFat||0)*9)/f.cal;
+  if(sugarPct>=0.30 || satFatPct>=0.20 || fatPct>=0.55) return {tag:"indulgent", color:"var(--red)", label:"Occasional"};
+  if(proteinPct>=0.25 && sugarPct<0.12) return {tag:"good", color:"var(--amber)", label:"Nutrient-dense"};
+  return null;
+}
 function foodLogCard(){
   if(!foodDate) foodDate = todayISO();
   const idxs = D.foods.map((f,i)=>({f,i})).filter(x=>x.f.date===foodDate);
   return `<div class="card">
-    <div class="label">Food log — ✎ edit · ⧉ add ×1</div>
+    <div class="label">Food log — tap ✎ to edit</div>
     ${idxs.length? idxs.map(({f,i})=> editFoodIdx===i ? `
       <div class="card2" style="margin-bottom:8px">
         <input id="ef_name" value="${esc(f.name)}" style="margin-bottom:8px">
@@ -749,19 +952,27 @@ function foodLogCard(){
           <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">C</div><input id="ef_c" type="number" step="any" value="${f.c}"></div>
           <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">F</div><input id="ef_f" type="number" step="any" value="${f.f}"></div>
         </div>
-        <div style="font-size:11px;color:var(--faint);margin-top:6px">Change Amount to rescale macros automatically (g → grams, scoops → count). Or type macros directly.</div>
+        <div class="row" style="gap:8px;margin-top:8px">
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">Sugar g</div><input id="ef_sugar" type="number" step="any" value="${f.sugar||0}"></div>
+          <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">Sat Fat g</div><input id="ef_satfat" type="number" step="any" value="${f.satFat||0}"></div>
+        </div>
+        <div style="font-size:11px;color:var(--faint);margin-top:6px">Change Amount to rescale everything automatically (g → grams, scoops → count). Or type values directly.</div>
         <div class="row" style="margin-top:10px">
           <button class="btn btn-g" style="padding:11px 0" onclick="saveEditFood(${i})">✓ Save</button>
           <button class="btn btn-ghost" style="padding:11px 0" onclick="editFoodIdx=null;render()">Cancel</button>
           <button class="btn btn-ghost" style="padding:11px 0;color:var(--red)" onclick="if(confirm('Remove this food?'))delFood(${i})">Delete</button>
         </div>
-      </div>` : `
-      <div class="chip">
-        <div style="flex:1"><div class="t1">${esc(f.name)}</div>
-        <div class="t2">${esc(f.serving||"")} · ${Math.round(f.cal)} cal · ${Math.round(f.p)}P ${Math.round(f.c)}C ${Math.round(f.f)}F</div></div>
-        <button class="x" onclick="dupFood(${i})" title="Add another">⧉</button>
-        <button class="x" onclick="editFoodIdx=${i};render()">✎</button>
-      </div>`).join("") : `<div style="color:var(--faint);font-size:13px">Nothing logged this day. Entries parsed today always save to today — past days can only be edited, not added to (yet).</div>`}
+      </div>` : (()=>{ const q=classifyFood(f); return `
+      <div class="swiperow">
+        <div class="swipe-bg-l">★ Favourite</div>
+        <div class="swipe-bg-r">Delete</div>
+        <div class="chip food-swipe" data-food-idx="${i}" style="${q?`border-left:3px solid ${q.color}`:""}">
+          <div style="flex:1"><div class="t1">${esc(f.name)} ${q?`<span style="font-size:9px;color:${q.color};letter-spacing:.5px">· ${q.label.toUpperCase()}</span>`:""}</div>
+          <div class="t2">${esc(f.serving||"")} · ${Math.round(f.cal)} cal · ${Math.round(f.p)}P ${Math.round(f.c)}C ${Math.round(f.f)}F</div></div>
+          <button class="x" onclick="editFoodIdx=${i};render()">✎</button>
+        </div>
+      </div>`; })()).join("") : `<div style="color:var(--faint);font-size:13px">Nothing logged this day. Entries parsed today always save to today — past days can only be edited, not added to (yet).</div>`}
+    <div style="font-size:11px;color:var(--faint);text-align:center;margin-top:${idxs.length?'10':'0'}px">${idxs.length?"← swipe to delete · swipe to favourite →":""}</div>
   </div>`;
 }
 
@@ -769,10 +980,6 @@ function pageNutrition(){
   if(!foodDate) foodDate = todayISO();
   const t=foodsOn(foodDate);
   const isToday = foodDate===todayISO();
-  const p=t.reduce((s,f)=>s+f.p,0), c=t.reduce((s,f)=>s+f.c,0), fat=t.reduce((s,f)=>s+f.f,0);
-  const cal=t.reduce((s,f)=>s+f.cal,0);
-  const mac=[{name:"Protein",g:p,cal:p*4,color:"var(--amber)"},{name:"Carbs",g:c,cal:c*4,color:"#FFFFFF"},{name:"Fat",g:fat,cal:fat*9,color:"#6E6E73"}];
-  const lib=Object.entries(D.library).slice(-15).reverse();
   return `
   <div class="pagetitle">Nutrition</div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin:-6px 0 12px">
@@ -783,24 +990,41 @@ function pageNutrition(){
     </div>
     <button class="btn btn-ghost" style="width:44px;padding:10px 0;font-size:16px;${isToday?'opacity:.3;pointer-events:none;':''}" onclick="shiftFoodDate(1)">›</button>
   </div>
-  <div class="card">
-    <div style="display:flex;align-items:center;gap:10px">
-      ${cal?donut(mac):`<div style="width:140px;height:140px;border-radius:50%;border:14px solid #222"></div>`}
-      <div style="flex:1">
-        <div class="bignum" style="font-size:28px">${cal.toLocaleString()}</div>
-        <div style="font-size:12px;color:var(--dim);margin-bottom:8px">of ${D.settings.cal} cal ${isToday?'today':'this day'}</div>
-        ${mac.map(m=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:5px">
-          <span style="color:${m.color}">● ${m.name}</span><span style="color:var(--dim)">${Math.round(m.g)}g</span></div>`).join("")}
-        <div style="font-size:11.5px;color:${p>=D.settings.protein?'var(--green)':'var(--dim)'};margin-top:8px">Protein floor ${D.settings.protein}g ${p>=D.settings.protein?"✓ hit":`· ${Math.max(0,Math.round(D.settings.protein-p))}g to go`}</div>
-      </div>
-    </div>
-  </div>
+  ${macroTile(t, isToday?"today":"this day")}
   ${foodLogCard()}
-  <div class="card">
-    <div class="label">Your staples · tap to add to ${isToday?"today":fmtD(foodDate)} (${Object.keys(D.library).length})</div>
-    ${lib.length? lib.map(([k,v])=>`<div class="staple" style="cursor:pointer" onclick="quickAddStaple('${jsAttr(k)}')">
+  ${favouritesCard()}
+  ${foodHistoryCard()}`;
+}
+let historyExpanded = false;
+async function toggleFavorite(key){
+  D.favorites = D.favorites||[];
+  const i = D.favorites.indexOf(key);
+  if(i>-1) D.favorites.splice(i,1); else D.favorites.push(key);
+  await save(); render();
+}
+function favouritesCard(){
+  const favs = (D.favorites||[]).filter(k=>D.library[k]);
+  return `<div class="card">
+    <div class="label">★ Favourites · tap to add</div>
+    ${favs.length? favs.map(k=>{ const v=D.library[k]; return `<div class="staple" style="cursor:pointer" onclick="quickAddStaple('${jsAttr(k)}')">
       <span style="text-transform:capitalize">➕ ${esc(k)}</span>
-      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="event.stopPropagation();delLib('${jsAttr(k)}')">✕</button></span></div>`).join("") : `<div style="color:var(--faint);font-size:13px">Foods you log get remembered here for exact repeat macros.</div>`}
+      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="event.stopPropagation();toggleFavorite('${jsAttr(k)}')" title="Unfavourite">★</button></span></div>`;}).join("")
+      : `<div style="color:var(--faint);font-size:13px">Tap ☆ on any food in your history below to pin it here for quick access.</div>`}
+  </div>`;
+}
+function foodHistoryCard(){
+  const lib = Object.entries(D.library);
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="historyExpanded=!historyExpanded;render()">
+      <div class="label" style="margin:0">Food history (${lib.length})</div>
+      <span style="font-size:12px;color:var(--faint)">${historyExpanded?"▲ hide":"▼ show"}</span>
+    </div>
+    ${historyExpanded? (lib.length? lib.slice().reverse().map(([k,v])=>{ const isFav=(D.favorites||[]).includes(k); return `<div class="staple" style="cursor:pointer;margin-top:10px" onclick="quickAddStaple('${jsAttr(k)}')">
+      <span style="text-transform:capitalize">➕ ${esc(k)}</span>
+      <span style="color:var(--dim)">${Math.round(v.cal)} cal
+        <button class="x" onclick="event.stopPropagation();toggleFavorite('${jsAttr(k)}')" title="Favourite">${isFav?"★":"☆"}</button>
+        <button class="x" onclick="event.stopPropagation();delLib('${jsAttr(k)}')">✕</button></span></div>`;}).join("")
+      : `<div style="color:var(--faint);font-size:13px;margin-top:10px">Foods you log get remembered here for exact repeat macros.</div>`) : ""}
   </div>`;
 }
 
@@ -866,7 +1090,7 @@ async function quickAddStaple(key){
   const lib = D.library[key];
   if(!lib) return;
   const date = foodDate || todayISO();
-  D.foods.push({date, ts:Date.now(), name:key, serving:lib.serving||"", cal:lib.cal||0, p:lib.p||0, c:lib.c||0, f:lib.f||0});
+  D.foods.push({date, ts:Date.now(), name:key, serving:lib.serving||"", cal:lib.cal||0, p:lib.p||0, c:lib.c||0, f:lib.f||0, sugar:lib.sugar||0, satFat:lib.satFat||0});
   await save(); toast('✓ Added to '+(date===todayISO()?"today":fmtD(date))); render();
 }
 async function delLib(k){ delete D.library[k]; await save(); render(); }
@@ -884,7 +1108,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v31)…<br>";
+  out.innerHTML = "Running diagnostics (app v35)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
@@ -911,6 +1135,7 @@ function render(){
   const pages={home:pageHome, progress:pageProgress, log:pageLog, training:pageTraining, nutrition:pageNutrition, goals:pageGoals};
   $('app').innerHTML = pages[page]();
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===page));
+  if(page==='nutrition') attachFoodSwipe();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{ page=b.dataset.p; render(); const sc=$('scroller'); if(sc) sc.scrollTop=0; });
 
