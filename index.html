@@ -54,11 +54,14 @@
   .chip .t1{font-size:14px;font-weight:600}
   .chip .t2{font-size:11.5px;color:var(--dim)}
   .swiperow{position:relative;border-radius:14px;margin-bottom:6px;overflow:hidden}
-  .swiperow .chip{margin-bottom:0;position:relative;z-index:1;touch-action:pan-y;will-change:transform}
-  .swipe-bg-l,.swipe-bg-r{position:absolute;inset:0;display:flex;align-items:center;
-    font-size:13px;font-weight:700;border-radius:14px}
-  .swipe-bg-l{background:var(--amber);color:#1A1400;padding-left:18px}
-  .swipe-bg-r{background:var(--red);color:#fff;justify-content:flex-end;padding-right:18px}
+  .swiperow .chip, .swiperow .staple{margin-bottom:0;position:relative;z-index:1;
+    touch-action:pan-y;will-change:transform;background:var(--card2);
+    padding:10px 12px;border-bottom:none}
+  .swipe-bg{position:absolute;inset:0;display:flex;align-items:center;gap:7px;
+    font-size:13px;font-weight:700;opacity:0}
+  .swipe-bg svg{width:16px;height:16px;flex-shrink:0}
+  .swipe-bg-l{background:var(--green);color:#052912;padding-left:18px;justify-content:flex-start}
+  .swipe-bg-r{background:var(--red);color:#fff;padding-right:18px;justify-content:flex-end}
   .tag{font-size:9px;letter-spacing:1px;border-radius:6px;padding:3px 7px;border:1px solid}
   .x{background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer;padding:4px}
   .navfade{position:fixed;left:0;right:0;bottom:0;height:130px;pointer-events:none;
@@ -131,6 +134,8 @@ const ICONS = {
   gear: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
   eye: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
   eyeOff: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>`,
+  star: `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/><path d="M10 11v6M14 11v6"/></svg>`,
 };
 // For text embedded inside onclick="fn('...')" attributes: must JS-escape quotes/backslashes
 // FIRST, then only HTML-escape &, <, " (never the apostrophe — HTML entity-decoding runs
@@ -349,9 +354,23 @@ async function favoriteFoodBySwipe(i){
   if(!D.favorites.includes(key)) D.favorites.push(key);
   await save(); toast('★ Added to favourites'); render();
 }
-function attachFoodSwipe(){
-  document.querySelectorAll('#app .food-swipe').forEach(el=>{
-    const idx = parseInt(el.dataset.foodIdx,10);
+function swipeDispatch(kind, dir, idx, key){
+  if(kind==='food'){
+    if(dir==='left') deleteFoodBySwipe(idx); else favoriteFoodBySwipe(idx);
+  } else if(kind==='history'){
+    if(dir==='left') delLibBySwipe(key); else toggleFavorite(key);
+  } else if(kind==='favorite'){
+    if(dir==='left') toggleFavorite(key); else toast('★ Already a favourite');
+  }
+}
+function attachSwipe(){
+  document.querySelectorAll('#app .swipe-el').forEach(el=>{
+    const row = el.closest('.swiperow');
+    const bgL = row && row.querySelector('.swipe-bg-l');
+    const bgR = row && row.querySelector('.swipe-bg-r');
+    const kind = el.dataset.swipeKind;
+    const idx = el.dataset.swipeIdx!==undefined ? parseInt(el.dataset.swipeIdx,10) : null;
+    const key = el.dataset.swipeKey;
     let startX=0, startY=0, dx=0, dragging=false, decided=false, horizontal=false;
     el.addEventListener('touchstart', e=>{
       const t=e.touches[0]; startX=t.clientX; startY=t.clientY; dx=0; dragging=true; decided=false; horizontal=false;
@@ -363,19 +382,27 @@ function attachFoodSwipe(){
       if(!decided && (Math.abs(dx)>8||Math.abs(dy)>8)){ decided=true; horizontal=Math.abs(dx)>Math.abs(dy); }
       if(horizontal){
         e.preventDefault();
-        el.style.transform = `translateX(${Math.max(-100,Math.min(100,dx))}px)`;
+        const clamped = Math.max(-100,Math.min(100,dx));
+        el.style.transform = `translateX(${clamped}px)`;
+        const prog = Math.min(1, Math.abs(clamped)/68);
+        if(bgL) bgL.style.opacity = clamped>0 ? prog : 0;
+        if(bgR) bgR.style.opacity = clamped<0 ? prog : 0;
       }
     }, {passive:false});
     const finish = ()=>{
       if(!dragging) return; dragging=false;
       el.style.transition='transform .2s ease';
-      if(horizontal && Math.abs(dx)>68){
-        if(dx<0){ el.style.transform='translateX(-100%)'; setTimeout(()=>deleteFoodBySwipe(idx),140); }
-        else { el.style.transform='translateX(0)'; favoriteFoodBySwipe(idx); }
-      } else { el.style.transform='translateX(0)'; }
+      const commit = horizontal && Math.abs(dx)>68;
+      if(commit && dx<0){ el.style.transform='translateX(-100%)'; setTimeout(()=>swipeDispatch(kind,'left',idx,key),140); }
+      else if(commit && dx>0){ el.style.transform='translateX(0)'; swipeDispatch(kind,'right',idx,key); }
+      else { el.style.transform='translateX(0)'; }
+      if(bgL) bgL.style.opacity=0; if(bgR) bgR.style.opacity=0;
     };
     el.addEventListener('touchend', finish);
-    el.addEventListener('touchcancel', ()=>{ dragging=false; el.style.transform='translateX(0)'; });
+    el.addEventListener('touchcancel', ()=>{
+      dragging=false; el.style.transform='translateX(0)';
+      if(bgL) bgL.style.opacity=0; if(bgR) bgR.style.opacity=0;
+    });
   });
 }
 async function saveEditFood(i){
@@ -964,9 +991,9 @@ function foodLogCard(){
         </div>
       </div>` : (()=>{ const q=classifyFood(f); return `
       <div class="swiperow">
-        <div class="swipe-bg-l">★ Favourite</div>
-        <div class="swipe-bg-r">Delete</div>
-        <div class="chip food-swipe" data-food-idx="${i}" style="${q?`border-left:3px solid ${q.color}`:""}">
+        <div class="swipe-bg swipe-bg-l">${ICONS.star} Favourite</div>
+        <div class="swipe-bg swipe-bg-r">Delete ${ICONS.trash}</div>
+        <div class="chip swipe-el" data-swipe-kind="food" data-swipe-idx="${i}" style="${q?`border-left:3px solid ${q.color}`:""}">
           <div style="flex:1"><div class="t1">${esc(f.name)} ${q?`<span style="font-size:9px;color:${q.color};letter-spacing:.5px">· ${q.label.toUpperCase()}</span>`:""}</div>
           <div class="t2">${esc(f.serving||"")} · ${Math.round(f.cal)} cal · ${Math.round(f.p)}P ${Math.round(f.c)}C ${Math.round(f.f)}F</div></div>
           <button class="x" onclick="editFoodIdx=${i};render()">✎</button>
@@ -1005,11 +1032,17 @@ async function toggleFavorite(key){
 function favouritesCard(){
   const favs = (D.favorites||[]).filter(k=>D.library[k]);
   return `<div class="card">
-    <div class="label">★ Favourites · tap to add</div>
-    ${favs.length? favs.map(k=>{ const v=D.library[k]; return `<div class="staple" style="cursor:pointer" onclick="quickAddStaple('${jsAttr(k)}')">
-      <span style="text-transform:capitalize">➕ ${esc(k)}</span>
-      <span style="color:var(--dim)">${Math.round(v.cal)} cal <button class="x" onclick="event.stopPropagation();toggleFavorite('${jsAttr(k)}')" title="Unfavourite">★</button></span></div>`;}).join("")
-      : `<div style="color:var(--faint);font-size:13px">Tap ☆ on any food in your history below to pin it here for quick access.</div>`}
+    <div class="label">★ Favourites · tap to add · swipe left to unfavourite</div>
+    ${favs.length? favs.map(k=>{ const v=D.library[k]; return `
+      <div class="swiperow">
+        <div class="swipe-bg swipe-bg-l">${ICONS.star} Favourite</div>
+        <div class="swipe-bg swipe-bg-r">Unfavourite ${ICONS.trash}</div>
+        <div class="staple swipe-el" data-swipe-kind="favorite" data-swipe-key="${esc(k)}" style="cursor:pointer" onclick="quickAddStaple('${jsAttr(k)}')">
+          <span style="text-transform:capitalize">➕ ${esc(k)}</span>
+          <span style="color:var(--dim)">${Math.round(v.cal)} cal</span>
+        </div>
+      </div>`;}).join("")
+      : `<div style="color:var(--faint);font-size:13px">Swipe right on any food in your history below to pin it here for quick access.</div>`}
   </div>`;
 }
 function foodHistoryCard(){
@@ -1019,11 +1052,15 @@ function foodHistoryCard(){
       <div class="label" style="margin:0">Food history (${lib.length})</div>
       <span style="font-size:12px;color:var(--faint)">${historyExpanded?"▲ hide":"▼ show"}</span>
     </div>
-    ${historyExpanded? (lib.length? lib.slice().reverse().map(([k,v])=>{ const isFav=(D.favorites||[]).includes(k); return `<div class="staple" style="cursor:pointer;margin-top:10px" onclick="quickAddStaple('${jsAttr(k)}')">
-      <span style="text-transform:capitalize">➕ ${esc(k)}</span>
-      <span style="color:var(--dim)">${Math.round(v.cal)} cal
-        <button class="x" onclick="event.stopPropagation();toggleFavorite('${jsAttr(k)}')" title="Favourite">${isFav?"★":"☆"}</button>
-        <button class="x" onclick="event.stopPropagation();delLib('${jsAttr(k)}')">✕</button></span></div>`;}).join("")
+    ${historyExpanded? (lib.length? `<div style="font-size:11px;color:var(--faint);margin:10px 0 8px">← swipe to remove · swipe to favourite →</div>` + lib.slice().reverse().map(([k,v])=>{ return `
+      <div class="swiperow">
+        <div class="swipe-bg swipe-bg-l">${ICONS.star} Favourite</div>
+        <div class="swipe-bg swipe-bg-r">Remove ${ICONS.trash}</div>
+        <div class="staple swipe-el" data-swipe-kind="history" data-swipe-key="${esc(k)}" style="cursor:pointer" onclick="quickAddStaple('${jsAttr(k)}')">
+          <span style="text-transform:capitalize">➕ ${esc(k)}</span>
+          <span style="color:var(--dim)">${Math.round(v.cal)} cal</span>
+        </div>
+      </div>`;}).join("")
       : `<div style="color:var(--faint);font-size:13px;margin-top:10px">Foods you log get remembered here for exact repeat macros.</div>`) : ""}
   </div>`;
 }
@@ -1094,6 +1131,23 @@ async function quickAddStaple(key){
   await save(); toast('✓ Added to '+(date===todayISO()?"today":fmtD(date))); render();
 }
 async function delLib(k){ delete D.library[k]; await save(); render(); }
+let lastDeletedLib = null;
+async function delLibBySwipe(key){
+  const wasFav = (D.favorites||[]).includes(key);
+  lastDeletedLib = {key, value: D.library[key], wasFav};
+  delete D.library[key];
+  if(D.favorites) D.favorites = D.favorites.filter(k=>k!==key);
+  await save();
+  undoToast('Removed from history', undoDeleteLib);
+  render();
+}
+async function undoDeleteLib(){
+  if(!lastDeletedLib) return;
+  D.library[lastDeletedLib.key] = lastDeletedLib.value;
+  if(lastDeletedLib.wasFav){ D.favorites = D.favorites||[]; if(!D.favorites.includes(lastDeletedLib.key)) D.favorites.push(lastDeletedLib.key); }
+  lastDeletedLib = null;
+  await save(); render();
+}
 async function quickWeight(){
   const v=parseFloat($('win').value);
   if(!v||v<20||v>400){ toast('Enter a valid weight'); return; }
@@ -1108,7 +1162,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v35)…<br>";
+  out.innerHTML = "Running diagnostics (app v36)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
@@ -1135,7 +1189,7 @@ function render(){
   const pages={home:pageHome, progress:pageProgress, log:pageLog, training:pageTraining, nutrition:pageNutrition, goals:pageGoals};
   $('app').innerHTML = pages[page]();
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===page));
-  if(page==='nutrition') attachFoodSwipe();
+  if(page==='nutrition') attachSwipe();
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{ page=b.dataset.p; render(); const sc=$('scroller'); if(sc) sc.scrollTop=0; });
 
