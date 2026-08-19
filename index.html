@@ -125,7 +125,7 @@ window.onerror = function(msg, src, line, col){
 let D = { lifts:[], foods:[], weights:[], cardio:[], library:{}, goals:[], settings:{cal:2200, protein:150, cardioMins:90}, coach:null, bigThree:["Deadlift","Squat","Bench"], favorites:[] };
 let page = "home";
 let parsedPending = null;
-let parsing = false, coaching = false;
+let parsing = false, coaching = false, aiStatus = "";
 
 const $ = id => document.getElementById(id);
 const localISO = d => { const x=d||new Date(); return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); };
@@ -139,6 +139,7 @@ const ICONS = {
   eyeOff: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>`,
   star: `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/><path d="M10 11v6M14 11v6"/></svg>`,
+  barcode: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10.5 8v8M14 8v8M17 8v8"/></svg>`,
 };
 // For text embedded inside onclick="fn('...')" attributes: must JS-escape quotes/backslashes
 // FIRST, then only HTML-escape &, <, " (never the apostrophe — HTML entity-decoding runs
@@ -217,30 +218,78 @@ async function resolveModel(){
   throw new Error("no working model found — last error: "+lastErr);
 }
 
-async function callClaude(prompt, maxTokens=1000){
-  if(!D.apiKey){ toast('⚠ Add your Gemini API key in Goals → Settings'); throw new Error("no key"); }
-  const model = await resolveModel();
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+// Transient = worth retrying automatically (server overloaded, brief rate spike, network blip)
+function isTransient(msg, status){
+  if(status===503 || status===500 || status===429) return true;
+  return /high demand|overload|unavailable|try again|temporarily|internal error|timeout|failed to fetch|load failed|network/i.test(String(msg||""));
+}
+async function geminiOnce(model, prompt, maxTokens){
   const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent?key="+encodeURIComponent(D.apiKey),{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[{text:prompt}]}],
       generationConfig:{maxOutputTokens:maxTokens}})
   });
-  const data = await res.json();
-  if(data.error){
-    if(/no longer available|not found/i.test(data.error.message||"")){ D.model=null; D.modelCheckedAt=0; await save(); }
-    if(/quota|rate/i.test(data.error.message||"")){ D.model=null; D.modelCheckedAt=0; await save(); toast('⚠ Rate limit hit — wait a minute and try again'); throw new Error("quota — wait ~1 min and retry"); }
-    toast('⚠ '+(data.error.message||"API error").slice(0,120));
-    throw new Error(data.error.message||"api error");
+  let data=null;
+  try{ data = await res.json(); }catch(e){ data=null; }
+  if(!res.ok || (data && data.error)){
+    const msg = (data && data.error && data.error.message) || ("HTTP "+res.status);
+    const err = new Error(msg); err.status = res.status; err.apiMessage = msg;
+    throw err;
   }
-  const cand = data.candidates && data.candidates[0];
+  const cand = data && data.candidates && data.candidates[0];
   return cand && cand.content && cand.content.parts ? cand.content.parts.map(p=>p.text||"").join("") : "";
+}
+async function callClaude(prompt, maxTokens=1000, opts={}){
+  if(!D.apiKey){ toast('⚠ Add your Gemini API key in Goals → Settings'); throw new Error("no key"); }
+  const onRetry = opts.onRetry || (()=>{});
+  let model;
+  try{ model = await resolveModel(); }
+  catch(e){
+    // model discovery itself can fail transiently — fall back to a known-good default
+    model = D.model || "gemini-flash-lite-latest";
+  }
+  const backoffs = [700, 1800, 3500];   // ~6s total across 4 attempts
+  let lastErr = null;
+  for(let attempt=0; attempt<=backoffs.length; attempt++){
+    try{
+      return await geminiOnce(model, prompt, maxTokens);
+    }catch(err){
+      lastErr = err;
+      const msg = err.apiMessage || err.message || "";
+      // model retired / not found -> re-resolve and retry immediately
+      if(/no longer available|not found|is not supported/i.test(msg)){
+        D.model=null; D.modelCheckedAt=0; await save();
+        try{ model = await resolveModel(); continue; }catch(e){ model = "gemini-flash-lite-latest"; continue; }
+      }
+      // hard daily quota -> not worth retrying
+      if(/quota|billing|exceeded your current quota/i.test(msg) && !/rate limit/i.test(msg)){
+        D.model=null; D.modelCheckedAt=0; await save();
+        throw new Error("Daily free-tier quota reached — try again later.");
+      }
+      if(attempt < backoffs.length && isTransient(msg, err.status)){
+        onRetry(attempt+1, backoffs.length+1);
+        await sleep(backoffs[attempt] + Math.random()*300);   // jitter
+        // on the last retry, try a different model in case this one is the busy one
+        if(attempt === backoffs.length-1){
+          try{ D.model=null; D.modelCheckedAt=0; const alt = await resolveModel(); if(alt) model = alt; }catch(e){}
+        }
+        continue;
+      }
+      break;
+    }
+  }
+  const finalMsg = (lastErr && (lastErr.apiMessage||lastErr.message)) || "request failed";
+  throw new Error(isTransient(finalMsg, lastErr && lastErr.status)
+    ? "Google's servers are busy right now. Tried 4 times — give it a minute and tap again."
+    : finalMsg);
 }
 
 async function parseEntry(){
   const text = $('logtext').value.trim();
   if(!text){ toast('Type something first'); return; }
-  parsing = true; render();
+  parsing = true; aiStatus=""; render();
   const libSummary = Object.entries(D.library).slice(-40).map(([k,v])=>
     `${k}: ${v.cal}cal ${v.p}P ${v.c}C ${v.f}F per "${v.serving}"`).join("\n") || "none yet";
   const prompt = `You are the parser for a personal health log app. The user types free text mixing gym lifts, food, and bodyweight. Parse it into JSON.
@@ -261,7 +310,7 @@ Respond with ONLY a raw JSON array. No markdown fences, no commentary, no text b
 User text:
 ${text}`;
   try{
-    let out = await callClaude(prompt, 2000);
+    let out = await callClaude(prompt, 2000, {onRetry:(n,total)=>{ aiStatus=`Servers busy — retrying (${n}/${total})…`; render(); }});
     out = out.replace(/```json|```/g,"").trim();
     // robust: extract first top-level JSON array even if wrapped in commentary
     const s = out.indexOf("["), e = out.lastIndexOf("]");
@@ -270,7 +319,7 @@ ${text}`;
     if(!Array.isArray(items)) throw new Error("bad shape");
     parsedPending = items;
   }catch(e){ if(!/^auth$|no key/.test(e.message)) toast('⚠ Parse failed: '+String(e.message||e).slice(0,110)); parsedPending = null; }
-  parsing = false; render();
+  parsing = false; aiStatus=""; render();
 }
 
 let logTargetDate = null;
@@ -321,9 +370,9 @@ TRAINING: ${exSummary||"none logged"}
 CARDIO (this week): ${(()=>{const c=cardioWeek();return c.sessions?`${c.sessions} sessions, ${c.mins} min of a ${c.target} min target, ~${Math.round(c.cals)} cal burned`:"none logged";})()}
 
 Give a concrete, numbers-first plan/check-in in under 120 words. Plain text, no markdown, no headers. Be direct. If data is thin, say what to log to get a real read. Note this is general guidance, not medical advice, only if genuinely warranted.`;
-  try{ D.coach = { at: Date.now(), text: (await callClaude(prompt, 400)).trim() }; await save(); }
+  try{ D.coach = { at: Date.now(), text: (await callClaude(prompt, 400, {onRetry:(n,t)=>{ aiStatus=`Retrying (${n}/${t})…`; render(); }})).trim() }; await save(); }
   catch(e){ toast('⚠ Coach unavailable — try again'); }
-  coaching = false; render();
+  coaching = false; aiStatus=""; render();
 }
 
 /* =============== EDITING =============== */
@@ -919,13 +968,16 @@ function pageLog(){
     <button class="btn btn-ghost" style="width:44px;padding:10px 0;font-size:16px;${isT?'opacity:.3;pointer-events:none;':''}" onclick="shiftLogDate(1)">›</button>
   </div>`; })()}
   <div class="card">
-    <div class="label">Type anything — AI sorts it</div>
-    <textarea id="logtext" placeholder="100kg squat for 3&#10;leg extensions 40kg 3x5, warmup 35kg x12&#10;beef mince and rice (220g/70g), 3 cheese rice cakes&#10;weighed in at 75.1kg"></textarea>
+    <div class="label">Type anything — a whole session, a meal, or one food</div>
+    <textarea id="logtext" placeholder="Weet-Bix&#10;— or —&#10;100kg squat for 3, leg ext 40kg 3x5&#10;beef mince and rice (220g/70g), 3 rice cakes&#10;weighed in at 75.1kg"></textarea>
     <div style="margin-top:12px">
-      <button class="btn btn-w" onclick="parseEntry()" ${parsing?"disabled":""}>${parsing?'<span class="spin"></span> Parsing…':'Parse entry'}</button>
+      <button class="btn btn-w" onclick="smartLog()" ${(parsing||fsBusy)?"disabled":""}>${(parsing||fsBusy)?'<span class="spin"></span> Working…':'Log it'}</button>
     </div>
-    <div style="font-size:11.5px;color:var(--faint);margin-top:10px">Tip: paste or describe a nutrition label and I'll save it to your library. Calorie figures are estimates unless from a label.</div>
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="openScanner()">${ICONS.barcode} Scan barcode</button>
+    <div style="font-size:11.5px;color:var(--faint);margin-top:10px">A single food name is looked up in the food database for exact label data. Anything longer — lifts, cardio, a full meal, your weigh-in — gets parsed by AI.</div>
   </div>
+  ${scannerOverlay()}
+  ${foodResultsCard()}
   ${parsedPending?`
   <div class="card">
     <div style="display:flex;justify-content:space-between;margin-bottom:10px">
@@ -942,18 +994,32 @@ function pageLog(){
 
 let trainSel = null;
 
-function sessionLogCard(){
-  const dates = [...new Set(D.lifts.map(l=>l.date))].sort().reverse().slice(0,14);
-  if(!dates.length) return "";
-  if(!trainDate || !dates.includes(trainDate)) trainDate = dates[0];
-  const idxs = D.lifts.map((l,i)=>({l,i})).filter(x=>x.l.date===trainDate);
-  return `<div class="card" style="margin-top:12px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <span class="label" style="margin:0">Session log — tap ✎ to fix</span>
-      <select onchange="trainDate=this.value;editLiftIdx=null;render()" style="width:auto">
-        ${dates.map(d=>`<option value="${d}" ${d===trainDate?"selected":""}>${fmtD(d)}</option>`).join("")}
-      </select>
+function shiftTrainDate(n){
+  const cur = trainDate || todayISO();
+  const d = new Date(cur+"T12:00"); d.setDate(d.getDate()+n);
+  const iso = localISO(d);
+  if(iso > todayISO()) return;
+  trainDate = iso; editLiftIdx=null; manualOpen=false; manualEx=null; cardioOpen=false; render();
+}
+function trainDateNav(){
+  if(!trainDate) trainDate = todayISO();
+  const isToday = trainDate===todayISO();
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin:-6px 0 12px">
+    <button class="btn btn-ghost" style="width:44px;padding:10px 0;font-size:16px" onclick="shiftTrainDate(-1)">‹</button>
+    <div style="text-align:center">
+      <div style="font-size:15px;font-weight:700">${isToday?"Today":fmtD(trainDate)}</div>
+      <div style="font-size:11px;color:${isToday?'var(--faint)':'var(--amber)'}">${isToday?esc(trainDate):"viewing past session"}</div>
     </div>
+    <button class="btn btn-ghost" style="width:44px;padding:10px 0;font-size:16px;${isToday?'opacity:.3;pointer-events:none;':''}" onclick="shiftTrainDate(1)">›</button>
+  </div>`;
+}
+function sessionLogCard(){
+  if(!trainDate) trainDate = todayISO();
+  const idxs = D.lifts.map((l,i)=>({l,i})).filter(x=>x.l.date===trainDate);
+  const isToday = trainDate===todayISO();
+  return `<div class="card" style="margin-top:12px">
+    <div class="label">Session log${idxs.length?" — tap ✎ to fix":""}</div>
+    ${!idxs.length?`<div style="color:var(--faint);font-size:13px;padding:4px 0 2px">No exercises logged ${isToday?"today":"on this day"}. Add one below.</div>`:""}
     ${idxs.map(({l,i})=> editLiftIdx===i ? `
       <div class="card2" style="margin-bottom:8px">
         <input id="el_ex" value="${esc(l.exercise)}" style="margin-bottom:8px">
@@ -976,6 +1042,7 @@ function sessionLogCard(){
         <div class="t2">${l.weightKg?l.weightKg+"kg × ":""}${l.reps||"?"} rep${l.reps===1?"":"s"} × ${l.sets} set${l.sets===1?"":"s"}</div></div>
         <button class="x" onclick="editLiftIdx=${i};render()">✎</button>
       </div>`).join("")}
+    ${manualAddInner()}
   </div>`;
 }
 
@@ -996,7 +1063,7 @@ function useTypedExercise(){
 async function saveManualLift(){
   if(!manualEx) return;
   const w=parseFloat($('qa_w').value)||0, r=parseInt($('qa_r').value)||0, s=parseInt($('qa_s').value)||1, warm=$('qa_warm').checked;
-  D.lifts.push({date:logTargetDate||todayISO(), ts:Date.now(), exercise:manualEx, weightKg:w, reps:r, sets:s, warmup:warm});
+  D.lifts.push({date:trainDate||todayISO(), ts:Date.now(), exercise:manualEx, weightKg:w, reps:r, sets:s, warmup:warm});
   trainSel = manualEx;
   manualOpen=false; manualEx=null; manualPrefill=null;
   await save(); toast('✓ Logged'); render();
@@ -1047,7 +1114,7 @@ async function saveCardio(){
   const inc = parseFloat($('cd_inc').value)||0;
   const speed = sp || (km&&minutes ? km/(minutes/60) : 0);
   D.cardio = D.cardio||[];
-  D.cardio.push({date:logTargetDate||todayISO(), ts:Date.now(), activity, minutes,
+  D.cardio.push({date:trainDate||todayISO(), ts:Date.now(), activity, minutes,
     distanceKm: km, speedKmh: speed||0, inclinePct: inc||0,
     calories: parseFloat($('cd_cal').value)||estimateBurn(activity,minutes,speed,inc)});
   cardioOpen=false; await save(); toast('✓ Cardio logged'); render();
@@ -1059,7 +1126,8 @@ async function delCardio(i){
   render();
 }
 function cardioCard(){
-  const list = (D.cardio||[]).slice().sort((a,b)=>b.ts-a.ts).slice(0,10);
+  const day = trainDate||todayISO();
+  const list = (D.cardio||[]).filter(c=>c.date===day).sort((a,b)=>b.ts-a.ts);
   const cut = Date.now()-7*864e5;
   const wkMin = (D.cardio||[]).filter(c=>c.ts>=cut).reduce((s,c)=>s+c.minutes,0);
   const wkCal = (D.cardio||[]).filter(c=>c.ts>=cut).reduce((s,c)=>s+c.calories,0);
@@ -1073,7 +1141,7 @@ function cardioCard(){
       <div style="flex:1"><div class="t1">${esc(c.activity)}</div>
       <div class="t2">${fmtD(c.date)} · ${c.minutes} min${c.distanceKm?` · ${c.distanceKm} km`:""}${c.speedKmh?` · ${(+c.speedKmh).toFixed(1)} km/h`:""}${c.inclinePct?` · ${c.inclinePct}%`:""} · ~${Math.round(c.calories)} cal</div></div>
       <button class="x" onclick="if(confirm('Remove this cardio entry?'))delCardio(${i})">✕</button>
-    </div>`;}).join("") : `<div style="color:var(--faint);font-size:13px">No cardio logged yet. Add one below, or just type it in the ＋ tab ("30min incline walk").</div>`}
+    </div>`;}).join("") : `<div style="color:var(--faint);font-size:13px">No cardio logged ${day===todayISO()?"today":"on this day"}. Add one below, or type it in the ＋ tab ("30min incline walk").</div>`}
     ${cardioOpen? `
     <div class="card2" style="margin-top:10px">
       <div style="font-size:11px;color:var(--dim);margin-bottom:3px">Activity</div>
@@ -1093,14 +1161,14 @@ function cardioCard(){
         <button class="btn btn-g" style="padding:11px 0" onclick="saveCardio()">✓ Log cardio</button>
         <button class="btn btn-ghost" style="padding:11px 0" onclick="cancelCardioAdd()">Cancel</button>
       </div>
-    </div>` : `<button class="btn btn-ghost" style="margin-top:10px" onclick="openCardioAdd()">+ Add cardio</button>`}
+    </div>` : `<button class="btn btn-ghost" style="margin-top:10px" onclick="openCardioAdd()">+ Add cardio to ${day===todayISO()?"today":esc(fmtD(day))}</button>`}
   </div>`;
 }
-function manualAddCard(){
-  if(!manualOpen) return `<button class="btn btn-ghost" style="margin-top:12px" onclick="openManualAdd()">+ Add exercise (no AI)</button>`;
+function manualAddInner(){
+  if(!manualOpen) return `<button class="btn btn-ghost" style="margin-top:10px" onclick="openManualAdd()">+ Add exercise to ${(trainDate||todayISO())===todayISO()?"today":esc(fmtD(trainDate))}</button>`;
   if(!manualEx){
     const known = topExercises();
-    return `<div class="card" style="margin-top:12px">
+    return `<div class="card2" style="margin-top:10px">
       <div class="label">Add a movement</div>
       <input id="qa_name" placeholder="Type an exercise name…">
       <button class="btn btn-w" style="margin-top:8px" onclick="useTypedExercise()">Use this name</button>
@@ -1109,7 +1177,7 @@ function manualAddCard(){
       <button class="btn btn-ghost" style="margin-top:10px" onclick="cancelManualAdd()">Cancel</button>
     </div>`;
   }
-  return `<div class="card" style="margin-top:12px">
+  return `<div class="card2" style="margin-top:10px">
     <div class="label">${esc(manualEx)}${manualPrefill&&manualPrefill.w?` <span style="color:var(--faint);font-weight:400">· last time: ${manualPrefill.w}kg ${manualPrefill.r}R × ${manualPrefill.s}S</span>`:""}</div>
     <div class="row" style="gap:8px">
       <div><div style="font-size:11px;color:var(--dim);margin-bottom:3px">kg</div><input id="qa_w" type="number" inputmode="decimal" step="0.5" value="${manualPrefill?manualPrefill.w:0}"></div>
@@ -1120,45 +1188,93 @@ function manualAddCard(){
       <input id="qa_warm" type="checkbox" style="width:auto"> Warmup set (excluded from stats)
     </label>
     <div class="row" style="margin-top:10px">
-      <button class="btn btn-g" style="padding:11px 0" onclick="saveManualLift()">✓ Log to today</button>
+      <button class="btn btn-g" style="padding:11px 0" onclick="saveManualLift()">✓ Log to ${(trainDate||todayISO())===todayISO()?"today":esc(fmtD(trainDate))}</button>
       <button class="btn btn-ghost" style="padding:11px 0" onclick="cancelManualAdd()">Cancel</button>
     </div>
   </div>`;
 }
-function pageTraining(){
+function defaultTrainLayout(){ return [
+  {id:'sessionlog',on:true},{id:'progress',on:true},
+  {id:'setsbars',on:true},{id:'volume',on:true},{id:'cardio',on:true}]; }
+const trainTileDefs = {
+  sessionlog:{label:"Session Log", render:()=>sessionLogCard()},
+  progress:{label:"Exercise Progress", render:()=>exProgressCard()},
+  setsbars:{label:"Working Sets Per Session", render:()=>setsBarsCard()},
+  volume:{label:"Volume Per Session", render:()=>volumeCard(exHistory(currentTrainSel()))},
+  cardio:{label:"Cardio", render:()=>cardioCard()},
+};
+let trainEditMode=false;
+function currentTrainSel(){
   const exs = topExercises();
-  if(!exs.length) return `<div class="pagetitle">Training</div>${D.lifts.length?sessionLogCard():`<div class="card" style="text-align:center;color:var(--dim);padding:40px 20px">No lifts logged yet.<br>Head to ＋ to parse a session, or add one manually below.</div>`}${manualAddCard()}${cardioCard()}`;
+  if(!exs.length) return null;
   if(!trainSel || !exs.includes(trainSel)) trainSel = exs[0];
-  const h = exHistory(trainSel);
-  const last = h[h.length-1];
-  const prev = h[h.length-2];
+  return trainSel;
+}
+async function moveTrainTile(i,dir){
+  const arr=D.trainLayout, j=i+dir;
+  if(j<0||j>=arr.length) return;
+  [arr[i],arr[j]]=[arr[j],arr[i]];
+  await save(); render();
+}
+async function toggleTrainTile(i){ D.trainLayout[i].on=!D.trainLayout[i].on; await save(); render(); }
+function exProgressCard(){
+  const exs=topExercises(); const sel=currentTrainSel();
+  if(!sel) return `<div class="card"><div class="label">Exercise progress</div><div style="color:var(--faint);font-size:13px">Log a lift with weights to see progress here.</div></div>`;
+  const hh=exHistory(sel), last=hh[hh.length-1], prev=hh[hh.length-2];
   const harder = last && prev ? (last.top>prev.top ? "⬆ Heavier than last time" : last.top===prev.top ? (last.sets>prev.sets?"⬆ More sets than last time":"→ Same as last time") : "⬇ Lighter than last time") : "";
-  return `
-  <div class="pagetitle">Training</div>
-  <select onchange="trainSel=this.value;render()" style="width:100%;margin-bottom:12px">
-    ${exs.map(e=>`<option ${e===trainSel?"selected":""}>${esc(e)}</option>`).join("")}
+  return `<select onchange="trainSel=this.value;render()" style="width:100%;margin-bottom:12px">
+    ${exs.map(e=>`<option ${e===sel?"selected":""}>${esc(e)}</option>`).join("")}
   </select>
   <div class="card">
-    <div class="label">${esc(trainSel)} · top working set</div>
+    <div class="label">${esc(sel)} · top working set</div>
     <div style="display:flex;align-items:baseline;gap:8px">
       <div class="bignum">${last?last.top:"–"}<span class="unit"> kg</span></div>
       ${last&&last.topReps?`<div style="font-size:13px;color:var(--dim)">${last.topReps} reps × ${last.topSets} set${last.topSets===1?"":"s"}</div>`:""}
     </div>
     ${harder?`<div style="font-size:12.5px;color:${last.top>=(prev?prev.top:0)?'var(--green)':'var(--red)'};margin:4px 0 8px">${harder}</div>`:""}
-    ${lineChart(h.map(x=>({v:x.top,l:fmtD(x.date)})),{color:"var(--amber)",suffix:" kg"})}
-  </div>
-  <div class="card">
+    ${lineChart(hh.map(x=>({v:x.top,l:fmtD(x.date)})),{color:"var(--amber)",suffix:" kg"})}
+  </div>`;
+}
+function setsBarsCard(){
+  const sel=currentTrainSel(); if(!sel) return "";
+  const hh=exHistory(sel);
+  return `<div class="card">
     <div class="label">Working sets per session</div>
-    ${barsSets(h)}
+    ${barsSets(hh)}
     <div style="font-size:12px;color:var(--dim)">Yellow = 3+ working sets · grey = under</div>
-  </div>
-  ${volumeCard(h)}
-  ${sessionLogCard()}
-  ${manualAddCard()}
-  ${cardioCard()}`;
+  </div>`;
+}
+function pageTraining(){
+  if(!D.trainLayout) D.trainLayout = defaultTrainLayout();
+  else {
+    D.trainLayout = D.trainLayout.filter(t=>trainTileDefs[t.id]);   // drop retired tiles
+    Object.keys(trainTileDefs).forEach(id=>{ if(!D.trainLayout.find(t=>t.id===id)) D.trainLayout.push({id,on:true}); });
+  }
+  const layout = D.trainLayout;
+  const header = `<div class="pagetitle" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <span>Training</span>
+    <button class="x" style="font-size:13px;display:flex;align-items:center;gap:5px" onclick="trainEditMode=!trainEditMode;render()">${trainEditMode?"✓ Done":`${ICONS.gear} Edit tiles`}</button>
+  </div>`;
+  if(trainEditMode){
+    return header + layout.map((t,i)=>{
+      const def=trainTileDefs[t.id]; if(!def) return "";
+      return `<div style="opacity:${t.on?1:0.4};margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;background:var(--card2);border-radius:12px;padding:8px 12px;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:600">${esc(def.label)}</span>
+          <div style="display:flex;gap:4px">
+            <button class="x" onclick="moveTrainTile(${i},-1)" ${i===0?"disabled":""}>↑</button>
+            <button class="x" onclick="moveTrainTile(${i},1)" ${i===layout.length-1?"disabled":""}>↓</button>
+            <button class="x" onclick="toggleTrainTile(${i})">${t.on?ICONS.eye:ICONS.eyeOff}</button>
+          </div>
+        </div>
+        <div style="pointer-events:none">${def.render()}</div>
+      </div>`;
+    }).join("") + `<div style="font-size:11.5px;color:var(--faint);text-align:center;margin-top:6px">↑↓ reorder · eye icon hides/shows a tile · tap "Done" when finished</div>`;
+  }
+  return header + trainDateNav() + layout.filter(t=>t.on).map(t=>trainTileDefs[t.id]?trainTileDefs[t.id].render():"").join("");
 }
 function volumeCard(h){
-  if(h.length<1) return "";
+  if(!h || h.length<1) return "";
   const last=h[h.length-1], prev=h[h.length-2];
   const delta = prev ? Math.round(last.volume-prev.volume) : null;
   const pct = prev&&prev.volume ? Math.round((last.volume-prev.volume)/prev.volume*100) : null;
@@ -1357,6 +1473,244 @@ function pageGoals(){
 
 /* =============== ACTIONS =============== */
 function removeChip(i){ parsedPending.splice(i,1); if(!parsedPending.length) parsedPending=null; render(); }
+/* ============ FOOD DATABASE (Open Food Facts) + AI FALLBACK ============ */
+let fsQuery="", fsResults=null, fsBusy=false, fsError="", fsPick=null, fsSource="";
+const OFF_UA = "HTLT/1.0 (personal fitness tracker)";
+
+function offNutriments(n, name, brand, serving){
+  const num = v => { const x=parseFloat(v); return isFinite(x)?x:0; };
+  let kcal = num(n["energy-kcal_100g"]);
+  if(!kcal && n["energy_100g"]) kcal = num(n["energy_100g"])/4.184; // kJ -> kcal
+  return {
+    name: [brand,name].filter(Boolean).join(" ").trim() || name || "Food",
+    per100: true,
+    serving: serving || "100g",
+    cal: Math.round(kcal),
+    p: Math.round(num(n["proteins_100g"])*10)/10,
+    c: Math.round(num(n["carbohydrates_100g"])*10)/10,
+    f: Math.round(num(n["fat_100g"])*10)/10,
+    sugar: Math.round(num(n["sugars_100g"])*10)/10,
+    satFat: Math.round(num(n["saturated-fat_100g"])*10)/10,
+  };
+}
+async function offSearchByName(q){
+  // v2 has no full-text; v1 cgi/search.pl does.
+  const url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms="+encodeURIComponent(q)
+    +"&search_simple=1&action=process&json=1&page_size=12"
+    +"&fields=product_name,brands,nutriments,serving_size,code";
+  const res = await fetch(url, {headers:{"Accept":"application/json"}});
+  if(!res.ok) throw new Error("search HTTP "+res.status);
+  const data = await res.json();
+  return (data.products||[])
+    .filter(p=>p.product_name && p.nutriments && (p.nutriments["energy-kcal_100g"]||p.nutriments["energy_100g"]))
+    .map(p=>({...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size), code:p.code}));
+}
+async function offLookupBarcode(code){
+  const url = "https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(code)
+    +".json?fields=product_name,brands,nutriments,serving_size";
+  const res = await fetch(url, {headers:{"Accept":"application/json"}});
+  if(!res.ok) throw new Error("barcode HTTP "+res.status);
+  const data = await res.json();
+  if(!data || data.status!==1 || !data.product) return null;
+  const p = data.product;
+  if(!p.nutriments) return null;
+  return {...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size), code};
+}
+async function aiFoodEstimate(q){
+  const prompt = `Estimate nutrition for this food, per 100g, as a single JSON object only (no markdown, no commentary):
+{"name":"...","cal":<kcal per 100g>,"p":<protein g>,"c":<carbs g>,"f":<fat g>,"sugar":<g>,"satFat":<g>}
+Food: ${q}
+Assume Australian products/preparation where relevant. Assume cooked weight and include typical cooking oil unless the food is obviously raw or packaged. Be realistic, not optimistic.`;
+  let out = await callClaude(prompt, 400, {onRetry:(n,t)=>{ aiStatus=`Servers busy — retrying (${n}/${t})…`; render(); }});
+  out = out.replace(/```json|```/g,"").trim();
+  const s=out.indexOf("{"), e=out.lastIndexOf("}");
+  if(s===-1||e===-1) throw new Error("no JSON from AI");
+  const o = JSON.parse(out.slice(s,e+1));
+  return {name:o.name||q, per100:true, serving:"100g", cal:Math.round(+o.cal||0),
+    p:+o.p||0, c:+o.c||0, f:+o.f||0, sugar:+o.sugar||0, satFat:+o.satFat||0, estimated:true};
+}
+/* Decide what the user meant: a single food to look up, or a session/meal log to parse.
+   Food lookup wins only for short, single-line text with no training/quantity signals. */
+function looksLikeFoodLookup(text){
+  const t = String(text||"").trim();
+  if(!t) return false;
+  if(/\n/.test(t)) return false;                       // multi-line = a log dump
+  if(/[,;]|\band\b|\bwith\b|\bplus\b/i.test(t)) return false;  // multiple items
+  // training / bodyweight / cardio signals -> parse, not lookup
+  if(/\d+\s*(kg|lb|lbs)\b/i.test(t)) return false;
+  if(/\b(reps?|sets?|x\s*\d|\d+\s*x)\b/i.test(t)) return false;
+  if(/\b(squat|bench|deadlift|press|curl|row|pulldown|extension|raise|dip|chin|pull[- ]?up|warm ?up)\b/i.test(t)) return false;
+  if(/\b(ran|run|walk|jog|cycl|bike|row(ing)?|swim|cardio|min(ute)?s?|km)\b/i.test(t)) return false;
+  if(/\b(weighed|bodyweight|weigh[- ]?in)\b/i.test(t)) return false;
+  if(/\b\d+\s*(g|grams?|ml|serves?|servings?|scoops?|slices?)\b/i.test(t)) return false; // portion stated -> parse it
+  if(/^\d+\s*x?\s+\S/i.test(t)) return false;          // leading count e.g. "3 rice cakes" -> parse it
+  return t.split(/\s+/).length <= 5;                   // short phrase = a product name
+}
+async function smartLog(){
+  const text = ($('logtext')?.value||"").trim();
+  if(!text){ toast('Type something first'); return; }
+  if(looksLikeFoodLookup(text)){
+    fsQuery = text;
+    await runFoodSearch(text);
+  } else {
+    await parseEntry();
+  }
+}
+async function runFoodSearch(qOverride){
+  const q = (typeof qOverride==="string" && qOverride) ? qOverride.trim() : (($('fs_q')?.value||"").trim());
+  if(!q){ toast('Type a food to search'); return; }
+  fsQuery=q; fsBusy=true; fsError=""; fsResults=null; fsPick=null; render();
+  try{
+    const hits = await offSearchByName(q);
+    if(hits.length){ fsResults=hits; fsSource="db"; }
+    else throw new Error("no database matches");
+  }catch(err){
+    // fall back to AI estimate
+    try{
+      const est = await aiFoodEstimate(q);
+      fsResults=[est]; fsSource="ai";
+    }catch(e2){
+      fsError = /no key|Add your Gemini/i.test(String(e2.message))
+        ? "No database match, and no API key set for an AI estimate."
+        : "Couldn't search the food database or get an AI estimate. Check your connection.";
+    }
+  }
+  fsBusy=false; aiStatus=""; render();
+}
+function pickFoodResult(i){
+  fsPick = fsResults[i];
+  render();
+  setTimeout(()=>{ const el=$('fs_amt'); if(el){ el.focus(); el.select&&el.select(); } },50);
+}
+function scaledFromPick(grams){
+  const r = fsPick, k = (+grams||0)/100;
+  return {cal:Math.round(r.cal*k), p:Math.round(r.p*k*10)/10, c:Math.round(r.c*k*10)/10,
+    f:Math.round(r.f*k*10)/10, sugar:Math.round(r.sugar*k*10)/10, satFat:Math.round(r.satFat*k*10)/10};
+}
+function previewFoodAmount(){
+  const g = parseFloat($('fs_amt')?.value)||0;
+  const s = scaledFromPick(g);
+  const el = $('fs_preview');
+  if(el) el.textContent = `${s.cal} cal · ${s.p}P ${s.c}C ${s.f}F`;
+}
+async function addPickedFood(){
+  if(!fsPick) return;
+  const grams = parseFloat($('fs_amt').value)||0;
+  if(!grams){ toast('Enter an amount in grams'); return; }
+  const s = scaledFromPick(grams);
+  const date = logTargetDate || todayISO();
+  const name = fsPick.name;
+  D.foods.push({date, ts:Date.now(), name, serving:grams+"g", ...s});
+  const key = name.toLowerCase().trim();
+  if(key && !D.library[key]) D.library[key] = {...s, serving:grams+"g"};
+  fsPick=null; fsResults=null; fsQuery=""; 
+  await save(); toast('✓ Added to '+(date===todayISO()?"today":fmtD(date))); render();
+}
+
+/* ============ BARCODE SCANNER ============ */
+let scanOpen=false, scanStream=null, scanTimer=null, scanMsg="";
+async function openScanner(){
+  scanOpen=true; scanMsg="Starting camera…"; render();
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    scanMsg = "This browser can't access the camera. On iPhone, open the app in Safari (scanning needs a secure https page).";
+    render(); return;
+  }
+  try{
+    scanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+    const v = $('scan_video');
+    if(!v){ stopScanner(); return; }
+    v.srcObject = scanStream; await v.play();
+    scanMsg = "Point at the barcode";
+    if('BarcodeDetector' in window){
+      const det = new window.BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
+      scanTimer = setInterval(async()=>{
+        try{ const codes = await det.detect(v); if(codes && codes.length) onScanned(codes[0].rawValue); }catch(e){}
+      }, 350);
+      render();
+    } else {
+      await loadZXing();
+      const reader = new window.ZXing.BrowserMultiFormatReader();
+      reader.decodeFromVideoElement(v, (result)=>{ if(result) onScanned(result.getText()); });
+      scanTimer = {zxing:reader};
+      render();
+    }
+  }catch(e){
+    scanMsg = "Camera unavailable — "+(e.name==='NotAllowedError'?"permission denied. Enable camera access in Safari settings.":String(e.message||e));
+    render();
+  }
+}
+function loadZXing(){
+  return new Promise((res,rej)=>{
+    if(window.ZXing) return res();
+    const s=document.createElement('script');
+    s.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+    s.onload=()=>res(); s.onerror=()=>rej(new Error("couldn't load scanner library"));
+    document.head.appendChild(s);
+  });
+}
+function stopScanner(){
+  if(scanTimer){ if(scanTimer.zxing){ try{scanTimer.zxing.reset();}catch(e){} } else clearInterval(scanTimer); scanTimer=null; }
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
+  scanOpen=false; render();
+}
+async function onScanned(code){
+  if(!code) return;
+  stopScanner();
+  fsBusy=true; fsError=""; fsResults=null; fsPick=null; render();
+  try{
+    const hit = await offLookupBarcode(code);
+    if(hit){ fsResults=[hit]; fsSource="db"; pickFoodResult(0); }
+    else { fsError = `Barcode ${code} isn't in the database yet. Try searching by name instead.`; }
+  }catch(e){ fsError = "Lookup failed: "+String(e.message||e); }
+  fsBusy=false; aiStatus=""; render();
+}
+function foodResultsCard(){
+  if(fsBusy) return `<div class="card"><div style="text-align:center;color:var(--dim);font-size:13px;padding:8px 0"><span class="spin"></span> Searching…</div></div>`;
+  if(fsError) return `<div class="card">
+    <div style="font-size:12.5px;color:var(--red)">${esc(fsError)}</div>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="fsError='';fsResults=null;render()">Dismiss</button>
+  </div>`;
+  const badge = fsSource==="ai"
+    ? `<span class="tag" style="color:var(--violet);border-color:#A78BFA55">AI ESTIMATE</span>`
+    : `<span class="tag" style="color:var(--green);border-color:#5BD98A55">DATABASE</span>`;
+  const target = (logTargetDate||todayISO())===todayISO() ? "today" : fmtD(logTargetDate);
+  if(fsPick) return `<div class="card" style="border:1px solid ${fsSource==='ai'?'var(--violet)':'var(--green)'}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span class="label" style="margin:0">Add food</span>${badge}
+    </div>
+    <div style="font-size:15px;font-weight:600">${esc(fsPick.name)}</div>
+    <div style="font-size:11.5px;color:var(--dim);margin:3px 0 10px">Per 100g: ${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:3px">How much did you have? (grams / ml)</div>
+    <input id="fs_amt" type="number" inputmode="decimal" value="100" oninput="previewFoodAmount()">
+    <div id="fs_preview" style="font-size:13px;font-weight:600;color:var(--amber);margin-top:8px">${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn btn-g" style="padding:11px 0" onclick="addPickedFood()">✓ Add to ${esc(target)}</button>
+      <button class="btn btn-ghost" style="padding:11px 0" onclick="fsPick=null;render()">Back</button>
+    </div>
+  </div>`;
+  if(fsResults) return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:11.5px;color:var(--dim)">${fsResults.length} result${fsResults.length===1?"":"s"} for "${esc(fsQuery)}"</span>${badge}
+    </div>
+    ${fsResults.map((r,i)=>`<div class="chip" style="cursor:pointer" onclick="pickFoodResult(${i})">
+      <div style="flex:1"><div class="t1">${esc(r.name)}</div>
+      <div class="t2">per 100g · ${r.cal} cal · ${r.p}P ${r.c}C ${r.f}F</div></div>
+      <span style="color:var(--faint)">›</span>
+    </div>`).join("")}
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="fsResults=null;fsQuery='';render()">Clear</button>
+  </div>`;
+  return "";
+}
+function scannerOverlay(){
+  if(!scanOpen) return "";
+  return `<div class="card" style="border:1px solid var(--amber)">
+    <div class="label" style="color:var(--amber)">Barcode scanner</div>
+    <video id="scan_video" playsinline muted style="width:100%;border-radius:14px;background:#000;max-height:280px;object-fit:cover"></video>
+    <div style="font-size:12.5px;color:var(--dim);margin-top:8px">${esc(scanMsg)}</div>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="stopScanner()">Cancel</button>
+  </div>`;
+}
+
 async function quickAddStaple(key){
   const lib = D.library[key];
   if(!lib) return;
@@ -1396,7 +1750,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v39)…<br>";
+  out.innerHTML = "Running diagnostics (app v49)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
