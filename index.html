@@ -104,6 +104,15 @@
 </div>
 
 <div class="navfade"></div>
+<div id="scanwrap" style="display:none;position:fixed;inset:0;background:#000;z-index:100;
+  flex-direction:column;align-items:center;justify-content:center;padding:20px">
+  <video id="scan_video" playsinline autoplay muted
+    style="width:100%;max-width:480px;border-radius:16px;background:#111;aspect-ratio:3/4;object-fit:cover"></video>
+  <div id="scan_msg" style="color:#8E8E93;font-size:13.5px;margin-top:14px;text-align:center;max-width:420px"></div>
+  <button id="scan_cancel" style="margin-top:16px;background:#1C1C1E;color:#fff;border:none;border-radius:16px;
+    padding:14px 28px;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">Cancel</button>
+</div>
+
 <nav id="nav">
   <button data-p="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg></button>
   <button data-p="progress" aria-label="Progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg></button>
@@ -976,7 +985,6 @@ function pageLog(){
     <button class="btn btn-ghost" style="margin-top:8px" onclick="openScanner()">${ICONS.barcode} Scan barcode</button>
     <div style="font-size:11.5px;color:var(--faint);margin-top:10px">A single food name is looked up in the food database for exact label data. Anything longer — lifts, cardio, a full meal, your weigh-in — gets parsed by AI.</div>
   </div>
-  ${scannerOverlay()}
   ${foodResultsCard()}
   ${parsedPending?`
   <div class="card">
@@ -1607,65 +1615,8 @@ async function addPickedFood(){
   await save(); toast('✓ Added to '+(date===todayISO()?"today":fmtD(date))); render();
 }
 
-/* ============ BARCODE SCANNER ============ */
-let scanOpen=false, scanStream=null, scanTimer=null, scanMsg="";
-async function openScanner(){
-  scanOpen=true; scanMsg="Starting camera…"; render();
-  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-    scanMsg = "This browser can't access the camera. On iPhone, open the app in Safari (scanning needs a secure https page).";
-    render(); return;
-  }
-  try{
-    scanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
-    const v = $('scan_video');
-    if(!v){ stopScanner(); return; }
-    v.srcObject = scanStream; await v.play();
-    scanMsg = "Point at the barcode";
-    if('BarcodeDetector' in window){
-      const det = new window.BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
-      scanTimer = setInterval(async()=>{
-        try{ const codes = await det.detect(v); if(codes && codes.length) onScanned(codes[0].rawValue); }catch(e){}
-      }, 350);
-      render();
-    } else {
-      await loadZXing();
-      const reader = new window.ZXing.BrowserMultiFormatReader();
-      reader.decodeFromVideoElement(v, (result)=>{ if(result) onScanned(result.getText()); });
-      scanTimer = {zxing:reader};
-      render();
-    }
-  }catch(e){
-    scanMsg = "Camera unavailable — "+(e.name==='NotAllowedError'?"permission denied. Enable camera access in Safari settings.":String(e.message||e));
-    render();
-  }
-}
-function loadZXing(){
-  return new Promise((res,rej)=>{
-    if(window.ZXing) return res();
-    const s=document.createElement('script');
-    s.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
-    s.onload=()=>res(); s.onerror=()=>rej(new Error("couldn't load scanner library"));
-    document.head.appendChild(s);
-  });
-}
-function stopScanner(){
-  if(scanTimer){ if(scanTimer.zxing){ try{scanTimer.zxing.reset();}catch(e){} } else clearInterval(scanTimer); scanTimer=null; }
-  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
-  scanOpen=false; render();
-}
-async function onScanned(code){
-  if(!code) return;
-  stopScanner();
-  fsBusy=true; fsError=""; fsResults=null; fsPick=null; render();
-  try{
-    const hit = await offLookupBarcode(code);
-    if(hit){ fsResults=[hit]; fsSource="db"; pickFoodResult(0); }
-    else { fsError = `Barcode ${code} isn't in the database yet. Try searching by name instead.`; }
-  }catch(e){ fsError = "Lookup failed: "+String(e.message||e); }
-  fsBusy=false; aiStatus=""; render();
-}
 function foodResultsCard(){
-  if(fsBusy) return `<div class="card"><div style="text-align:center;color:var(--dim);font-size:13px;padding:8px 0"><span class="spin"></span> Searching…</div></div>`;
+  if(fsBusy) return `<div class="card"><div style="text-align:center;color:var(--dim);font-size:13px;padding:8px 0"><span class="spin"></span> ${esc(aiStatus||"Searching…")}</div></div>`;
   if(fsError) return `<div class="card">
     <div style="font-size:12.5px;color:var(--red)">${esc(fsError)}</div>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="fsError='';fsResults=null;render()">Dismiss</button>
@@ -1701,14 +1652,77 @@ function foodResultsCard(){
   </div>`;
   return "";
 }
-function scannerOverlay(){
-  if(!scanOpen) return "";
-  return `<div class="card" style="border:1px solid var(--amber)">
-    <div class="label" style="color:var(--amber)">Barcode scanner</div>
-    <video id="scan_video" playsinline muted style="width:100%;border-radius:14px;background:#000;max-height:280px;object-fit:cover"></video>
-    <div style="font-size:12.5px;color:var(--dim);margin-top:8px">${esc(scanMsg)}</div>
-    <button class="btn btn-ghost" style="margin-top:10px" onclick="stopScanner()">Cancel</button>
-  </div>`;
+
+/* ============ BARCODE SCANNER ============ */
+let scanOpen=false, scanStream=null, scanTimer=null, scanMsg="";
+function scanSay(msg){ const el=document.getElementById('scan_msg'); if(el) el.textContent=msg; }
+async function openScanner(){
+  const wrap=document.getElementById('scanwrap'), v=document.getElementById('scan_video');
+  if(!wrap||!v) return;
+  wrap.style.display='flex';
+  document.getElementById('scan_cancel').onclick=stopScanner;
+  scanOpen=true;
+  scanSay('Starting camera…');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    scanSay("This browser can't use the camera. Open the app in Safari over https, then try again.");
+    return;
+  }
+  try{
+    scanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});
+    v.srcObject = scanStream;
+    v.setAttribute('playsinline','');   // iOS: prevents fullscreen takeover
+    await v.play().catch(()=>{});
+    scanSay('Point at the barcode');
+    if('BarcodeDetector' in window){
+      let det;
+      try{ det = new window.BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']}); }
+      catch(e){ det = new window.BarcodeDetector(); }
+      scanTimer = setInterval(async()=>{
+        if(!scanOpen) return;
+        try{ const codes = await det.detect(v); if(codes && codes.length) onScanned(codes[0].rawValue); }catch(e){}
+      }, 350);
+    } else {
+      scanSay('Loading scanner…');
+      await loadZXing();
+      scanSay('Point at the barcode');
+      const reader = new window.ZXing.BrowserMultiFormatReader();
+      reader.decodeFromVideoElement(v, (result)=>{ if(result && scanOpen) onScanned(result.getText()); });
+      scanTimer = {zxing:reader};
+    }
+  }catch(e){
+    const n=e && e.name;
+    scanSay(n==='NotAllowedError' ? 'Camera permission denied. Allow camera access for this site in Safari settings, then try again.'
+      : n==='NotFoundError' ? 'No camera found on this device.'
+      : 'Camera error: '+String((e&&e.message)||e));
+  }
+}
+function loadZXing(){
+  return new Promise((res,rej)=>{
+    if(window.ZXing) return res();
+    const s=document.createElement('script');
+    s.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+    s.onload=()=>res(); s.onerror=()=>rej(new Error("couldn't load scanner library"));
+    document.head.appendChild(s);
+  });
+}
+function stopScanner(){
+  scanOpen=false;
+  if(scanTimer){ if(scanTimer.zxing){ try{scanTimer.zxing.reset();}catch(e){} } else clearInterval(scanTimer); scanTimer=null; }
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
+  const v=document.getElementById('scan_video'); if(v) v.srcObject=null;
+  const wrap=document.getElementById('scanwrap'); if(wrap) wrap.style.display='none';
+}
+async function onScanned(code){
+  if(!code || !scanOpen) return;
+  stopScanner();
+  page='log';
+  fsBusy=true; fsError=""; fsResults=null; fsPick=null; render();
+  try{
+    const hit = await offLookupBarcode(code);
+    if(hit){ fsResults=[hit]; fsSource="db"; pickFoodResult(0); }
+    else { fsError = `Barcode ${code} isn't in the food database. Try typing the product name instead.`; }
+  }catch(e){ fsError = "Lookup failed: "+String(e.message||e); }
+  fsBusy=false; aiStatus=""; render();
 }
 
 async function quickAddStaple(key){
@@ -1750,7 +1764,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v49)…<br>";
+  out.innerHTML = "Running diagnostics (app v50)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
