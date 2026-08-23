@@ -1489,7 +1489,7 @@ function pageGoals(){
 /* =============== ACTIONS =============== */
 function removeChip(i){ parsedPending.splice(i,1); if(!parsedPending.length) parsedPending=null; render(); }
 /* ============ FOOD DATABASE (Open Food Facts) + AI FALLBACK ============ */
-let fsQuery="", fsResults=null, fsBusy=false, fsError="", fsPick=null, fsSource="";
+let fsQuery="", fsResults=null, fsBusy=false, fsError="", fsPick=null, fsSource="", fsAudit=null;
 const OFF_UA = "HTLT/1.0 (personal fitness tracker)";
 
 function offNutriments(n, name, brand, serving, p){
@@ -1524,6 +1524,24 @@ function offNutriments(n, name, brand, serving, p){
     sugar: Math.round(num(n["sugars_100g"])*10)/10,
     satFat: Math.round(num(n["saturated-fat_100g"])*10)/10,
   };
+}
+// Open Food Facts is crowd-sourced: entries can be blank, or have per-serving figures
+// pasted into the per-100g fields. Cross-check calories against the macros (4/4/9).
+function auditFood(x){
+  const macroCal = x.p*4 + x.c*4 + x.f*9;
+  const issues = [];
+  if(!x.cal && !macroCal) issues.push("no nutrition data on this entry");
+  if(!x.cal && macroCal) issues.push(`calories missing from the entry (macros suggest ~${Math.round(macroCal)} per 100g)`);
+  if(!x.p && !x.c && !x.f) issues.push("macros missing from the database entry");
+  if(x.cal && macroCal){
+    const ratio = macroCal / x.cal;
+    if(ratio > 1.25 || ratio < 0.75) issues.push(`calories and macros disagree (macros suggest ~${Math.round(macroCal)} cal per 100g, entry says ${Math.round(x.cal)})`);
+  }
+  if(x.cal > 950) issues.push("calories per 100g look too high — entry may be per-serving");
+  if(x.p>100||x.c>100||x.f>100||x.sugar>100||x.satFat>100) issues.push("a macro exceeds 100g per 100g — entry is wrong");
+  if(x.sugar > x.c + 0.5) issues.push("sugar exceeds total carbs");
+  if(x.satFat > x.f + 0.5) issues.push("saturated fat exceeds total fat");
+  return {ok: issues.length===0, issues, macroCal: Math.round(macroCal)};
 }
 async function offSearchByName(q){
   // v2 has no full-text; v1 cgi/search.pl does.
@@ -1618,6 +1636,8 @@ async function runFoodSearch(qOverride){
 }
 function pickFoodResult(i){
   fsPick = fsResults[i];
+  const a = auditFood(fsPick);
+  fsAudit = a.ok ? null : a;
   render();
   setTimeout(()=>{ const el=$('fs_amt'); if(el){ el.focus(); el.select&&el.select(); } },50);
 }
@@ -1625,6 +1645,12 @@ function scaledFromPick(grams){
   const r = fsPick, k = (+grams||0)/100;
   return {cal:Math.round(r.cal*k), p:Math.round(r.p*k*10)/10, c:Math.round(r.c*k*10)/10,
     f:Math.round(r.f*k*10)/10, sugar:Math.round(r.sugar*k*10)/10, satFat:Math.round(r.satFat*k*10)/10};
+}
+async function useMacroCalories(){
+  if(!fsPick) return;
+  fsPick.cal = Math.round(fsPick.p*4 + fsPick.c*4 + fsPick.f*9);
+  const a = auditFood(fsPick); fsAudit = a.ok ? null : a;
+  toast('Calories recalculated from macros'); render();
 }
 function previewFoodAmount(){
   const g = parseFloat($('fs_amt')?.value)||0;
@@ -1664,6 +1690,12 @@ function foodResultsCard(){
     </div>
     <div style="font-size:15px;font-weight:600">${esc(fsPick.name)}</div>
     <div style="font-size:11.5px;color:var(--dim);margin:3px 0 10px">Per 100g: ${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
+    ${fsAudit?`<div class="card2" style="border:1px solid var(--red);margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">⚠ This database entry looks wrong</div>
+      <div style="font-size:11.5px;color:var(--dim);line-height:1.5">${fsAudit.issues.map(esc).join("<br>")}</div>
+      <div style="font-size:11px;color:var(--faint);margin-top:6px">Open Food Facts is crowd-sourced, so entries can be incomplete or mis-entered. Check the packet and correct the numbers after adding, or fix them below.</div>
+      ${fsAudit.macroCal?`<button class="btn btn-ghost" style="margin-top:8px;font-size:12.5px" onclick="useMacroCalories()">Use ${fsAudit.macroCal} cal (calculated from the macros)</button>`:""}
+    </div>`:""}
     ${(()=>{ const sg=fsPick.servingGrams||0, sl=fsPick.servingLabel||"1 serving";
       const opts = sg ? [[sg, sl+" ("+sg+"g)"],[Math.round(sg/2), "Half ("+Math.round(sg/2)+"g)"],[100,"100g"]] : [[100,"100g"],[150,"150g"],[200,"200g"]];
       return `<div style="font-size:11px;color:var(--dim);margin-bottom:6px">How much did you have?</div>
@@ -1799,6 +1831,14 @@ async function onScanned(code){
     const hit = await offLookupBarcode(code);
     if(hit){
       fsSource="db";
+      const audit = auditFood(hit);
+      if(!audit.ok){
+        // Suspect database entry — show it instead of silently logging bad numbers.
+        fsResults=[hit]; fsPick=hit; fsAudit=audit;
+        fsBusy=false; aiStatus=""; page='log'; render();
+        return;
+      }
+      fsAudit=null;
       // We know the pack/serving size from the database — log it straight away.
       const grams = hit.autoAmount || 100;
       const k = grams/100;
@@ -1861,7 +1901,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v53)…<br>";
+  out.innerHTML = "Running diagnostics (app v54)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
