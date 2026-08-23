@@ -1574,6 +1574,19 @@ function offNutriments(n, name, brand, serving, p){
 }
 // Open Food Facts is crowd-sourced: entries can be blank, or have per-serving figures
 // pasted into the per-100g fields. Cross-check calories against the macros (4/4/9).
+function perServingFallback(x){
+  // The entry's "per 100" values are really per-serving/per-pack.
+  // Logging one serving therefore means using them verbatim (scale factor 1).
+  const label = x.unit==="ml" ? "1 serving (est.)" : "1 serving (est.)";
+  return {
+    ...x,
+    cal:x.cal, p:x.p, c:x.c, f:x.f, sugar:x.sugar, satFat:x.satFat,
+    autoAmount:100,           // 100 * (values/100) == values
+    autoLabel:label,
+    servingGrams:0, servingLabel:label,
+    perServingAssumed:true,
+  };
+}
 function auditFood(x){
   const macroCal = x.p*4 + x.c*4 + x.f*9;
   const issues = [];
@@ -1724,8 +1737,8 @@ function pickFoodResult(i){
   fsPick = fsResults[i];
   if(fsPick && fsPick.__raw) lastRawProduct = {code:fsPick.code||"", product:fsPick.__raw};
   const a = auditFood(fsPick);
-  fsAudit = a.ok ? null : a;
-  if(!a.ok && D.apiKey) setTimeout(()=>{ if(fsPick && fsAudit && !fsPick.aiRepaired) repairPicked(); }, 0);
+  fsAudit = null;
+  if(!a.ok) setTimeout(()=>autoFixPicked(), 0);
   render();
   setTimeout(()=>{ const el=$('fs_amt'); if(el){ el.focus(); el.select&&el.select(); } },50);
 }
@@ -1760,6 +1773,26 @@ function rawDataPanel(){
       <div style="font-size:10.5px;color:var(--faint);margin-top:8px">If these raw values already look wrong, the database entry itself is wrong — correct it on openfoodfacts.org, or just edit the macros after adding.</div>
     </div>`:""}
   </div>`;
+}
+async function autoFixPicked(){
+  if(!fsPick || auditFood(fsPick).ok) return;
+  const original = fsPick;
+  if(D.apiKey){
+    fsBusy=true; aiStatus="Entry looks wrong — correcting…"; render();
+    try{
+      const fixed = await aiRepairEntry(original);
+      if(auditFood(fixed).ok){
+        fsPick = fixed; fsAudit=null; fsBusy=false; aiStatus="";
+        toast(fixed.repairNote ? '✓ '+fixed.repairNote : '✓ Corrected automatically');
+        render(); return;
+      }
+    }catch(e){ /* fall through */ }
+    fsBusy=false; aiStatus="";
+  }
+  fsPick = perServingFallback(original);
+  fsAudit = null;
+  toast('✓ Entry read as one serving');
+  render();
 }
 async function repairPicked(){
   if(!fsPick) return;
@@ -1817,7 +1850,9 @@ function foodResultsCard(){
     </div>
     <div style="font-size:15px;font-weight:600">${esc(fsPick.name)}</div>
     <div style="font-size:11.5px;color:var(--dim);margin:3px 0 4px">Per 100${esc(fsPick.unit||"g")}: ${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
-    ${fsPick.aiRepaired?`<div style="font-size:11px;color:var(--green);margin-bottom:8px">✓ Corrected automatically${fsPick.repairNote?" — "+esc(fsPick.repairNote):""}</div>`:`<div style="margin-bottom:6px"></div>`}
+    ${fsPick.aiRepaired?`<div style="font-size:11px;color:var(--green);margin-bottom:8px">✓ Corrected automatically${fsPick.repairNote?" — "+esc(fsPick.repairNote):""}</div>`
+      : fsPick.perServingAssumed?`<div style="font-size:11px;color:var(--green);margin-bottom:8px">✓ Database entry was per-serving — read as one serving</div>`
+      :`<div style="margin-bottom:6px"></div>`}
     ${rawDataPanel()}
     ${fsAudit?`<div class="card2" style="border:1px solid var(--red);margin-bottom:10px">
       <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">⚠ This database entry looks wrong</div>
@@ -1961,21 +1996,23 @@ async function onScanned(code){
     const hit = await offLookupBarcode(code);
     if(hit){
       fsSource="db";
-      let audit = auditFood(hit);
       let item = hit;
-      if(!audit.ok && D.apiKey){
-        // Suspect entry — have the AI work out the real per-100 figures and pack size.
-        aiStatus = "Database entry looks wrong — checking…"; render();
-        try{
-          const fixed = await aiRepairEntry(hit);
-          const a2 = auditFood(fixed);
-          if(a2.ok){ item = fixed; audit = a2; }
-        }catch(e){ /* keep the original and let the user review */ }
-      }
-      if(!auditFood(item).ok){
-        fsResults=[item]; fsPick=item; fsAudit=auditFood(item);
-        fsBusy=false; aiStatus=""; page='log'; render();
-        return;
+      let fixNote = "";
+      if(!auditFood(hit).ok){
+        // 1) Ask the AI for the true per-100 values and pack size, if a key is set.
+        if(D.apiKey){
+          aiStatus = "Database entry looks wrong — correcting…"; render();
+          try{
+            const fixed = await aiRepairEntry(hit);
+            if(auditFood(fixed).ok){ item = fixed; fixNote = "corrected"; }
+          }catch(e){ /* fall through to the local fix */ }
+        }
+        // 2) Local fallback that needs no AI: the figures are per-serving,
+        //    so one serving is simply those figures as they stand.
+        if(!auditFood(item).ok){
+          item = perServingFallback(hit);
+          fixNote = "read as 1 serving";
+        }
       }
       fsAudit=null;
       const hitFixed = item;
@@ -1995,7 +2032,7 @@ async function onScanned(code){
       fsBusy=false; aiStatus=""; fsResults=null; fsPick=null;
       page='nutrition'; foodDate = date;
       render();
-      undoToast(`✓ ${hitFixed.name} · ${entry.serving} · ${s.cal} cal${hitFixed.aiRepaired?" (corrected)":""}`, undoScanAdd);
+      undoToast(`✓ ${hitFixed.name} · ${entry.serving} · ${s.cal} cal${fixNote?" ("+fixNote+")":""}`, undoScanAdd);
       return;
     }
     else { fsError = `Barcode ${code} isn't in the food database. Try typing the product name instead.`; }
@@ -2042,7 +2079,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v58)…<br>";
+  out.innerHTML = "Running diagnostics (app v59)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
