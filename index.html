@@ -1492,14 +1492,31 @@ function removeChip(i){ parsedPending.splice(i,1); if(!parsedPending.length) par
 let fsQuery="", fsResults=null, fsBusy=false, fsError="", fsPick=null, fsSource="";
 const OFF_UA = "HTLT/1.0 (personal fitness tracker)";
 
-function offNutriments(n, name, brand, serving){
+function offNutriments(n, name, brand, serving, p){
   const num = v => { const x=parseFloat(v); return isFinite(x)?x:0; };
   let kcal = num(n["energy-kcal_100g"]);
   if(!kcal && n["energy_100g"]) kcal = num(n["energy_100g"])/4.184; // kJ -> kcal
+  p = p || {};
+  // unit: ml for drinks, otherwise grams
+  const qtyStr = String(p.quantity||serving||"");
+  const unit = /\bml\b|\bmL\b|litre|liter|\bl\b/i.test(qtyStr) ? "ml" : "g";
+  const packQty = num(p.product_quantity) || num(qtyStr);          // whole pack, e.g. 375ml can
+  const servQty = num(p.serving_quantity) || num(serving);          // stated serving, e.g. 30g
+  // A small pack is eaten in one go (can, bottle, bar, pouch); a big pack is not.
+  const singleServePack = packQty>0 && packQty<=600;
+  const autoAmount = singleServePack ? packQty : (servQty>0 ? servQty : (packQty>0 && packQty<=1000 ? servQty||100 : 100));
+  const autoLabel = singleServePack
+      ? (qtyStr.trim() ? "1 pack ("+Math.round(packQty)+unit+")" : Math.round(packQty)+unit)
+      : (servQty>0 ? (String(serving||"").trim() || Math.round(servQty)+unit) : "100"+unit);
   return {
     name: [brand,name].filter(Boolean).join(" ").trim() || name || "Food",
     per100: true,
     serving: serving || "100g",
+    unit,
+    packQty: Math.round(packQty)||0,
+    servQty: Math.round(servQty)||0,
+    autoAmount: Math.round(autoAmount)||100,
+    autoLabel,
     cal: Math.round(kcal),
     p: Math.round(num(n["proteins_100g"])*10)/10,
     c: Math.round(num(n["carbohydrates_100g"])*10)/10,
@@ -1512,37 +1529,44 @@ async function offSearchByName(q){
   // v2 has no full-text; v1 cgi/search.pl does.
   const url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms="+encodeURIComponent(q)
     +"&search_simple=1&action=process&json=1&page_size=12"
-    +"&fields=product_name,brands,nutriments,serving_size,code";
+    +"&fields=product_name,brands,nutriments,serving_size,serving_quantity,quantity,product_quantity,code";
   const res = await fetch(url, {headers:{"Accept":"application/json"}});
   if(!res.ok) throw new Error("search HTTP "+res.status);
   const data = await res.json();
   return (data.products||[])
     .filter(p=>p.product_name && p.nutriments && (p.nutriments["energy-kcal_100g"]||p.nutriments["energy_100g"]))
-    .map(p=>({...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size), code:p.code}));
+    .map(p=>({...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size,p), code:p.code}));
 }
 async function offLookupBarcode(code){
   const url = "https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(code)
-    +".json?fields=product_name,brands,nutriments,serving_size";
+    +".json?fields=product_name,brands,nutriments,serving_size,serving_quantity,quantity,product_quantity";
   const res = await fetch(url, {headers:{"Accept":"application/json"}});
   if(!res.ok) throw new Error("barcode HTTP "+res.status);
   const data = await res.json();
   if(!data || data.status!==1 || !data.product) return null;
   const p = data.product;
   if(!p.nutriments) return null;
-  return {...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size), code};
+  return {...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size,p), code};
 }
 async function aiFoodEstimate(q){
-  const prompt = `Estimate nutrition for this food, per 100g, as a single JSON object only (no markdown, no commentary):
-{"name":"...","cal":<kcal per 100g>,"p":<protein g>,"c":<carbs g>,"f":<fat g>,"sugar":<g>,"satFat":<g>}
+  const prompt = `Estimate nutrition for this food as a single JSON object only (no markdown, no commentary):
+{"name":"...","cal":<kcal per 100g>,"p":<protein g per 100g>,"c":<carbs g per 100g>,"f":<fat g per 100g>,"sugar":<g per 100g>,"satFat":<g per 100g>,"servingGrams":<typical single serving in grams>,"servingLabel":"<short name for one serving>"}
 Food: ${q}
-Assume Australian products/preparation where relevant. Assume cooked weight and include typical cooking oil unless the food is obviously raw or packaged. Be realistic, not optimistic.`;
+Rules:
+- Australian products and preparation where relevant.
+- Assume cooked weight, and include the fat/oil it is actually cooked and served with (crumbed and fried foods, sauces, dressings, butter). Restaurant and pub servings are large and generously oiled — do not give a lean home-cooked estimate for those.
+- servingGrams must be the realistic weight of ONE typical serving as actually served (e.g. a pub chicken schnitzel plate ~350-450g, a slice of bread ~35g, a medium banana ~120g).
+- servingLabel is short, e.g. "1 schnitzel", "1 slice", "1 medium banana", "1 cup".
+- Be realistic, not optimistic.`;
   let out = await callClaude(prompt, 400, {onRetry:(n,t)=>{ aiStatus=`Servers busy — retrying (${n}/${t})…`; render(); }});
   out = out.replace(/```json|```/g,"").trim();
   const s=out.indexOf("{"), e=out.lastIndexOf("}");
   if(s===-1||e===-1) throw new Error("no JSON from AI");
   const o = JSON.parse(out.slice(s,e+1));
   return {name:o.name||q, per100:true, serving:"100g", cal:Math.round(+o.cal||0),
-    p:+o.p||0, c:+o.c||0, f:+o.f||0, sugar:+o.sugar||0, satFat:+o.satFat||0, estimated:true};
+    p:+o.p||0, c:+o.c||0, f:+o.f||0, sugar:+o.sugar||0, satFat:+o.satFat||0, estimated:true,
+    servingGrams: Math.round(+o.servingGrams||0) || 0,
+    servingLabel: (o.servingLabel||"").toString().slice(0,30)};
 }
 /* Decide what the user meant: a single food to look up, or a session/meal log to parse.
    Food lookup wins only for short, single-line text with no training/quantity signals. */
@@ -1615,9 +1639,11 @@ async function addPickedFood(){
   const s = scaledFromPick(grams);
   const date = logTargetDate || todayISO();
   const name = fsPick.name;
-  D.foods.push({date, ts:Date.now(), name, serving:grams+"g", ...s});
+  const sg = fsPick.servingGrams||0;
+  const label = (sg && Math.abs(grams-sg)<1) ? `${fsPick.servingLabel||"1 serving"} (${grams}g)` : grams+"g";
+  D.foods.push({date, ts:Date.now(), name, serving:label, ...s});
   const key = name.toLowerCase().trim();
-  if(key && !D.library[key]) D.library[key] = {...s, serving:grams+"g"};
+  if(key && !D.library[key]) D.library[key] = {...s, serving:label};
   fsPick=null; fsResults=null; fsQuery=""; 
   await save(); toast('✓ Added to '+(date===todayISO()?"today":fmtD(date))); render();
 }
@@ -1638,9 +1664,16 @@ function foodResultsCard(){
     </div>
     <div style="font-size:15px;font-weight:600">${esc(fsPick.name)}</div>
     <div style="font-size:11.5px;color:var(--dim);margin:3px 0 10px">Per 100g: ${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
-    <div style="font-size:11px;color:var(--dim);margin-bottom:3px">How much did you have? (grams / ml)</div>
-    <input id="fs_amt" type="number" inputmode="decimal" value="100" oninput="previewFoodAmount()">
-    <div id="fs_preview" style="font-size:13px;font-weight:600;color:var(--amber);margin-top:8px">${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
+    ${(()=>{ const sg=fsPick.servingGrams||0, sl=fsPick.servingLabel||"1 serving";
+      const opts = sg ? [[sg, sl+" ("+sg+"g)"],[Math.round(sg/2), "Half ("+Math.round(sg/2)+"g)"],[100,"100g"]] : [[100,"100g"],[150,"150g"],[200,"200g"]];
+      return `<div style="font-size:11px;color:var(--dim);margin-bottom:6px">How much did you have?</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        ${opts.map(([g,label])=>`<button class="btn btn-ghost" style="width:auto;padding:8px 12px;font-size:12.5px;font-weight:600"
+          onclick="document.getElementById('fs_amt').value=${g};previewFoodAmount()">${esc(label)}</button>`).join("")}
+      </div>`; })()}
+    <input id="fs_amt" type="number" inputmode="decimal" value="${fsPick.servingGrams||100}" oninput="previewFoodAmount()">
+    <div style="font-size:10.5px;color:var(--faint);margin-top:4px">grams / ml${fsPick.servingGrams?` · one ${esc(fsPick.servingLabel||"serving")} ≈ ${fsPick.servingGrams}g`:""}</div>
+    <div id="fs_preview" style="font-size:13px;font-weight:600;color:var(--amber);margin-top:8px">${(()=>{const s=scaledFromPick(fsPick.servingGrams||100);return `${s.cal} cal · ${s.p}P ${s.c}C ${s.f}F`;})()}</div>
     <div class="row" style="margin-top:10px">
       <button class="btn btn-g" style="padding:11px 0" onclick="addPickedFood()">✓ Add to ${esc(target)}</button>
       <button class="btn btn-ghost" style="padding:11px 0" onclick="fsPick=null;render()">Back</button>
@@ -1750,6 +1783,13 @@ function stopScanner(){
   const v=document.getElementById('scan_video'); if(v) v.srcObject=null;
   const wrap=document.getElementById('scanwrap'); if(wrap) wrap.style.display='none';
 }
+let lastScannedIdx = null;
+async function undoScanAdd(){
+  if(lastScannedIdx===null) return;
+  D.foods.splice(lastScannedIdx,1);
+  lastScannedIdx=null;
+  await save(); toast('Removed'); render();
+}
 async function onScanned(code){
   if(!code || !scanOpen) return;
   stopScanner();
@@ -1757,7 +1797,26 @@ async function onScanned(code){
   fsBusy=true; fsError=""; fsResults=null; fsPick=null; render();
   try{
     const hit = await offLookupBarcode(code);
-    if(hit){ fsResults=[hit]; fsSource="db"; pickFoodResult(0); }
+    if(hit){
+      fsSource="db";
+      // We know the pack/serving size from the database — log it straight away.
+      const grams = hit.autoAmount || 100;
+      const k = grams/100;
+      const s = {cal:Math.round(hit.cal*k), p:Math.round(hit.p*k*10)/10, c:Math.round(hit.c*k*10)/10,
+                 f:Math.round(hit.f*k*10)/10, sugar:Math.round(hit.sugar*k*10)/10, satFat:Math.round(hit.satFat*k*10)/10};
+      const date = logTargetDate || todayISO();
+      const entry = {date, ts:Date.now(), name:hit.name, serving:hit.autoLabel||(grams+(hit.unit||"g")), ...s};
+      D.foods.push(entry);
+      const key = hit.name.toLowerCase().trim();
+      if(key && !D.library[key]) D.library[key] = {...s, serving:entry.serving};
+      lastScannedIdx = D.foods.length-1;
+      await save();
+      fsBusy=false; aiStatus=""; fsResults=null; fsPick=null;
+      page='nutrition'; foodDate = date;
+      render();
+      undoToast(`✓ ${hit.name} · ${entry.serving} · ${s.cal} cal`, undoScanAdd);
+      return;
+    }
     else { fsError = `Barcode ${code} isn't in the food database. Try typing the product name instead.`; }
   }catch(e){ fsError = "Lookup failed: "+String(e.message||e); }
   fsBusy=false; aiStatus=""; render();
@@ -1802,7 +1861,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v51)…<br>";
+  out.innerHTML = "Running diagnostics (app v53)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
