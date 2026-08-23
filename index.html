@@ -1518,6 +1518,29 @@ function offNutriments(n, name, brand, serving, p){
     }
   }
   p = p || {};
+  // --- Guard against double-scaling -------------------------------------
+  // Some OFF entries have per-SERVING figures sitting in the *_100g fields.
+  // Scaling those by the pack size multiplies the error (e.g. a 500ml drink
+  // came out 5x high). Detect it by comparing against the *_serving fields.
+  const servQtyRaw = num(p.serving_quantity) || num(p.serving_size);
+  const kcalServing = num(n["energy-kcal_serving"]) ||
+                      (num(n["energy-kj_serving"]) ? num(n["energy-kj_serving"])/4.184 : 0);
+  const carbServing = num(n["carbohydrates_serving"]);
+  let per100Divisor = 1;
+  if(servQtyRaw > 0 && Math.abs(servQtyRaw-100) > 5){
+    const scale = servQtyRaw/100;              // e.g. 500ml serving -> 5
+    const kcal100Field = num(n["energy-kcal_100g"]);
+    // If the "_100g" value matches the SERVING value rather than serving/scale,
+    // the field is mislabelled and must be divided back down to a true per-100 basis.
+    if(kcalServing>0 && kcal100Field>0){
+      const looksPerServing = Math.abs(kcal100Field - kcalServing) < Math.abs(kcal100Field - kcalServing/scale);
+      if(looksPerServing) per100Divisor = scale;
+    } else if(carbServing>0 && num(n["carbohydrates_100g"])>0){
+      const c100 = num(n["carbohydrates_100g"]);
+      const looksPerServing = Math.abs(c100 - carbServing) < Math.abs(c100 - carbServing/scale);
+      if(looksPerServing) per100Divisor = scale;
+    }
+  }
   // unit: ml for drinks, otherwise grams
   const qtyStr = String(p.quantity||serving||"");
   const unit = /\bml\b|\bmL\b|litre|liter|\bl\b/i.test(qtyStr) ? "ml" : "g";
@@ -1529,21 +1552,24 @@ function offNutriments(n, name, brand, serving, p){
   const autoLabel = singleServePack
       ? (qtyStr.trim() ? "1 pack ("+Math.round(packQty)+unit+")" : Math.round(packQty)+unit)
       : (servQty>0 ? (String(serving||"").trim() || Math.round(servQty)+unit) : "100"+unit);
+  if(per100Divisor !== 1) kcal = kcal/per100Divisor;
+  const per100 = v => Math.round((num(v)/per100Divisor)*10)/10;
   return {
     name: [brand,name].filter(Boolean).join(" ").trim() || name || "Food",
     per100: true,
     serving: serving || "100g",
     unit,
+    correctedPerServing: per100Divisor !== 1,
     packQty: Math.round(packQty)||0,
     servQty: Math.round(servQty)||0,
     autoAmount: Math.round(autoAmount)||100,
     autoLabel,
     cal: Math.round(kcal),
-    p: Math.round(num(n["proteins_100g"])*10)/10,
-    c: Math.round(num(n["carbohydrates_100g"])*10)/10,
-    f: Math.round(num(n["fat_100g"])*10)/10,
-    sugar: Math.round(num(n["sugars_100g"])*10)/10,
-    satFat: Math.round(num(n["saturated-fat_100g"])*10)/10,
+    p: per100(n["proteins_100g"]),
+    c: per100(n["carbohydrates_100g"]),
+    f: per100(n["fat_100g"]),
+    sugar: per100(n["sugars_100g"]),
+    satFat: per100(n["saturated-fat_100g"]),
   };
 }
 // Open Food Facts is crowd-sourced: entries can be blank, or have per-serving figures
@@ -1559,6 +1585,9 @@ function auditFood(x){
     if(ratio > 1.25 || ratio < 0.75) issues.push(`calories and macros disagree (macros suggest ~${Math.round(macroCal)} cal per 100g, entry says ${Math.round(x.cal)})`);
   }
   if(x.cal > 950) issues.push("calories per 100g look too high — entry may be per-serving");
+  // A drink at >25g carbs/100ml, or any item >95g carbs/100g, is implausible
+  if(x.unit==="ml" && x.c > 30) issues.push(`carbs of ${x.c}g per 100ml are implausible for a drink — entry may be per-serving`);
+  if(x.c > 95 || x.p > 95 || x.f > 95) issues.push("a macro is near-impossible per 100g");
   if(x.p>100||x.c>100||x.f>100||x.sugar>100||x.satFat>100) issues.push("a macro exceeds 100g per 100g — entry is wrong");
   if(x.sugar > x.c + 0.5) issues.push("sugar exceeds total carbs");
   if(x.satFat > x.f + 0.5) issues.push("saturated fat exceeds total fat");
@@ -1574,8 +1603,9 @@ async function offSearchByName(q){
   const data = await res.json();
   return (data.products||[])
     .filter(p=>p.product_name && p.nutriments && (p.nutriments["energy-kcal_100g"]||p.nutriments["energy-kj_100g"]||p.nutriments["energy_100g"]))
-    .map(p=>({...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size,p), code:p.code}));
+    .map(p=>({...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size,p), code:p.code, __raw:p}));
 }
+let lastRawProduct = null, showRaw = false;
 async function offLookupBarcode(code){
   const url = "https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(code)
     +".json?fields=product_name,brands,nutriments,serving_size,serving_quantity,quantity,product_quantity";
@@ -1585,6 +1615,7 @@ async function offLookupBarcode(code){
   if(!data || data.status!==1 || !data.product) return null;
   const p = data.product;
   if(!p.nutriments) return null;
+  lastRawProduct = {code, product:p};
   return {...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size,p), code};
 }
 async function aiFoodEstimate(q){
@@ -1657,6 +1688,7 @@ async function runFoodSearch(qOverride){
 }
 function pickFoodResult(i){
   fsPick = fsResults[i];
+  if(fsPick && fsPick.__raw) lastRawProduct = {code:fsPick.code||"", product:fsPick.__raw};
   const a = auditFood(fsPick);
   fsAudit = a.ok ? null : a;
   render();
@@ -1666,6 +1698,33 @@ function scaledFromPick(grams){
   const r = fsPick, k = (+grams||0)/100;
   return {cal:Math.round(r.cal*k), p:Math.round(r.p*k*10)/10, c:Math.round(r.c*k*10)/10,
     f:Math.round(r.f*k*10)/10, sugar:Math.round(r.sugar*k*10)/10, satFat:Math.round(r.satFat*k*10)/10};
+}
+function rawDataPanel(){
+  if(!lastRawProduct) return "";
+  const p = lastRawProduct.product||{}, n = p.nutriments||{};
+  const keys = ["energy-kcal_100g","energy-kj_100g","energy_100g","energy_unit",
+    "energy-kcal_serving","energy_serving","proteins_100g","carbohydrates_100g","fat_100g",
+    "sugars_100g","saturated-fat_100g"];
+  const rows = keys.filter(k=>n[k]!==undefined).map(k=>`<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0">
+      <span style="color:var(--dim)">${esc(k)}</span><span>${esc(String(n[k]))}</span></div>`).join("");
+  const meta = [["barcode",lastRawProduct.code],["quantity",p.quantity],["product_quantity",p.product_quantity],
+    ["serving_size",p.serving_size],["serving_quantity",p.serving_quantity]]
+    .filter(([k,v])=>v!==undefined&&v!=="").map(([k,v])=>`<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0">
+      <span style="color:var(--dim)">${esc(k)}</span><span>${esc(String(v))}</span></div>`).join("");
+  return `<div style="margin-bottom:10px">
+    <button class="btn btn-ghost" style="font-size:12px;padding:8px 0" onclick="showRaw=!showRaw;render()">
+      ${showRaw?"▲ Hide":"▼ Show"} raw database values</button>
+    ${showRaw?`<div class="card2" style="margin-top:8px">
+      <div style="font-size:11px;color:var(--amber);letter-spacing:1px;margin-bottom:6px">WHAT THE DATABASE RETURNED</div>
+      ${meta}${meta&&rows?`<div style="height:1px;background:var(--line);margin:6px 0"></div>`:""}${rows}
+      <div style="height:1px;background:var(--line);margin:8px 0"></div>
+      <div style="font-size:11px;color:var(--amber);letter-spacing:1px;margin-bottom:6px">WHAT THE APP WORKED OUT</div>
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:var(--dim)">calories per 100${esc(fsPick&&fsPick.unit||"g")}</span><span>${fsPick?fsPick.cal:"–"}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:var(--dim)">macros suggest</span><span>${fsPick?Math.round(fsPick.p*4+fsPick.c*4+fsPick.f*9):"–"} cal</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:var(--dim)">auto amount</span><span>${fsPick?fsPick.autoAmount+(fsPick.unit||"g"):"–"}</span></div>
+      <div style="font-size:10.5px;color:var(--faint);margin-top:8px">If these raw values already look wrong, the database entry itself is wrong — correct it on openfoodfacts.org, or just edit the macros after adding.</div>
+    </div>`:""}
+  </div>`;
 }
 async function useMacroCalories(){
   if(!fsPick) return;
@@ -1711,6 +1770,7 @@ function foodResultsCard(){
     </div>
     <div style="font-size:15px;font-weight:600">${esc(fsPick.name)}</div>
     <div style="font-size:11.5px;color:var(--dim);margin:3px 0 10px">Per 100g: ${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
+    ${rawDataPanel()}
     ${fsAudit?`<div class="card2" style="border:1px solid var(--red);margin-bottom:10px">
       <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">⚠ This database entry looks wrong</div>
       <div style="font-size:11.5px;color:var(--dim);line-height:1.5">${fsAudit.issues.map(esc).join("<br>")}</div>
@@ -1922,7 +1982,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v55)…<br>";
+  out.innerHTML = "Running diagnostics (app v57)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
