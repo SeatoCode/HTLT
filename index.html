@@ -1494,8 +1494,29 @@ const OFF_UA = "HTLT/1.0 (personal fitness tracker)";
 
 function offNutriments(n, name, brand, serving, p){
   const num = v => { const x=parseFloat(v); return isFinite(x)?x:0; };
+  // Energy resolution. OFF exposes several fields and units vary by product:
+  //   energy-kcal_100g  -> always kcal (trust first)
+  //   energy-kj_100g    -> always kJ
+  //   energy_100g       -> UNIT DEPENDS on energy_unit; assuming kJ here was the old bug
   let kcal = num(n["energy-kcal_100g"]);
-  if(!kcal && n["energy_100g"]) kcal = num(n["energy_100g"])/4.184; // kJ -> kcal
+  if(!kcal && n["energy-kj_100g"]) kcal = num(n["energy-kj_100g"])/4.184;
+  if(!kcal && n["energy_100g"]){
+    const raw = num(n["energy_100g"]);
+    const unit = String(n["energy_unit"]||"").toLowerCase();
+    if(unit.includes("kcal") || unit==="cal") kcal = raw;
+    else if(unit.includes("kj")) kcal = raw/4.184;
+    else {
+      // No unit given: decide using the macros, which are always in grams.
+      const macroCal = num(n["proteins_100g"])*4 + num(n["carbohydrates_100g"])*4 + num(n["fat_100g"])*9;
+      if(macroCal>0){
+        const asKcal = Math.abs(raw - macroCal);
+        const asKj   = Math.abs(raw/4.184 - macroCal);
+        kcal = asKj <= asKcal ? raw/4.184 : raw;
+      } else {
+        kcal = raw > 900 ? raw/4.184 : raw;   // >900 per 100g is implausible as kcal
+      }
+    }
+  }
   p = p || {};
   // unit: ml for drinks, otherwise grams
   const qtyStr = String(p.quantity||serving||"");
@@ -1552,7 +1573,7 @@ async function offSearchByName(q){
   if(!res.ok) throw new Error("search HTTP "+res.status);
   const data = await res.json();
   return (data.products||[])
-    .filter(p=>p.product_name && p.nutriments && (p.nutriments["energy-kcal_100g"]||p.nutriments["energy_100g"]))
+    .filter(p=>p.product_name && p.nutriments && (p.nutriments["energy-kcal_100g"]||p.nutriments["energy-kj_100g"]||p.nutriments["energy_100g"]))
     .map(p=>({...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size,p), code:p.code}));
 }
 async function offLookupBarcode(code){
@@ -1854,7 +1875,7 @@ async function onScanned(code){
       fsBusy=false; aiStatus=""; fsResults=null; fsPick=null;
       page='nutrition'; foodDate = date;
       render();
-      undoToast(`✓ ${hit.name} · ${entry.serving} · ${s.cal} cal`, undoScanAdd);
+      undoToast(`✓ ${hit.name} · ${entry.serving} · ${s.cal} cal (${hit.cal}/100${hit.unit||"g"})`, undoScanAdd);
       return;
     }
     else { fsError = `Barcode ${code} isn't in the food database. Try typing the product name instead.`; }
@@ -1901,7 +1922,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v54)…<br>";
+  out.innerHTML = "Running diagnostics (app v55)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
