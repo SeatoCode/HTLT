@@ -1586,7 +1586,11 @@ function auditFood(x){
   }
   if(x.cal > 950) issues.push("calories per 100g look too high — entry may be per-serving");
   // A drink at >25g carbs/100ml, or any item >95g carbs/100g, is implausible
-  if(x.unit==="ml" && x.c > 30) issues.push(`carbs of ${x.c}g per 100ml are implausible for a drink — entry may be per-serving`);
+  const isPowder = /\b(powder|protein powder|mix|concentrate|syrup|sachet|instant)\b/i.test(String(x.name||""));
+  const isDrink = !isPowder && (x.unit==="ml" ||
+    /\b(drink|juice|cola|soda|soft ?drink|energy|water|milk|coffee|tea|cordial|lemonade|smoothie|beer|cider|shake|latte)\b/i.test(String(x.name||"")));
+  if(isDrink && x.c > 30) issues.push(`carbs of ${x.c}g per 100${x.unit||"ml"} are implausible for a drink — entry is probably per-serving`);
+  if(isDrink && x.cal > 120) issues.push(`${x.cal} cal per 100${x.unit||"ml"} is implausible for a drink — entry is probably per-serving`);
   if(x.c > 95 || x.p > 95 || x.f > 95) issues.push("a macro is near-impossible per 100g");
   if(x.p>100||x.c>100||x.f>100||x.sugar>100||x.satFat>100) issues.push("a macro exceeds 100g per 100g — entry is wrong");
   if(x.sugar > x.c + 0.5) issues.push("sugar exceeds total carbs");
@@ -1617,6 +1621,36 @@ async function offLookupBarcode(code){
   if(!p.nutriments) return null;
   lastRawProduct = {code, product:p};
   return {...offNutriments(p.nutriments,p.product_name,p.brands,p.serving_size,p), code};
+}
+async function aiRepairEntry(bad){
+  const macroCal = Math.round(bad.p*4 + bad.c*4 + bad.f*9);
+  const prompt = `A crowd-sourced food database has a likely-wrong entry. Work out the CORRECT values.
+
+Product: ${bad.name}
+Database says, supposedly per 100${bad.unit||"g"}: ${bad.cal} kcal, ${bad.p}g protein, ${bad.c}g carbs, ${bad.f}g fat, ${bad.sugar}g sugar, ${bad.satFat}g saturated fat.
+(Those macros only account for ~${macroCal} kcal, and/or are implausible per 100${bad.unit||"g"}.)
+
+The usual cause is per-SERVING or per-PACK figures pasted into the per-100 fields. Work out the true per-100${bad.unit||"g"} values for this product, and the typical pack/serving size it is sold in.
+
+Reply with ONLY this JSON object:
+{"name":"...","cal":<kcal per 100${bad.unit||"g"}>,"p":<g>,"c":<g>,"f":<g>,"sugar":<g>,"satFat":<g>,"servingGrams":<typical pack or serving size as a number>,"servingLabel":"<e.g. 1 can (500ml)>","note":"<short reason, max 12 words>"}
+
+Australian/NZ product knowledge where relevant. Be realistic.`;
+  let out = await callClaude(prompt, 400, {onRetry:(n,t)=>{ aiStatus=`Checking (${n}/${t})…`; render(); }});
+  out = out.replace(/```json|```/g,"").trim();
+  const s=out.indexOf("{"), e=out.lastIndexOf("}");
+  if(s===-1||e===-1) throw new Error("no JSON from AI");
+  const o = JSON.parse(out.slice(s,e+1));
+  return {
+    name: o.name || bad.name,
+    per100: true, serving: bad.serving, unit: bad.unit,
+    cal: Math.round(+o.cal||0), p:+o.p||0, c:+o.c||0, f:+o.f||0,
+    sugar:+o.sugar||0, satFat:+o.satFat||0,
+    servingGrams: Math.round(+o.servingGrams||0)||0,
+    servingLabel: (o.servingLabel||"").toString().slice(0,30),
+    aiRepaired: true, repairNote: (o.note||"").toString().slice(0,60),
+    code: bad.code,
+  };
 }
 async function aiFoodEstimate(q){
   const prompt = `Estimate nutrition for this food as a single JSON object only (no markdown, no commentary):
@@ -1691,6 +1725,7 @@ function pickFoodResult(i){
   if(fsPick && fsPick.__raw) lastRawProduct = {code:fsPick.code||"", product:fsPick.__raw};
   const a = auditFood(fsPick);
   fsAudit = a.ok ? null : a;
+  if(!a.ok && D.apiKey) setTimeout(()=>{ if(fsPick && fsAudit && !fsPick.aiRepaired) repairPicked(); }, 0);
   render();
   setTimeout(()=>{ const el=$('fs_amt'); if(el){ el.focus(); el.select&&el.select(); } },50);
 }
@@ -1725,6 +1760,18 @@ function rawDataPanel(){
       <div style="font-size:10.5px;color:var(--faint);margin-top:8px">If these raw values already look wrong, the database entry itself is wrong — correct it on openfoodfacts.org, or just edit the macros after adding.</div>
     </div>`:""}
   </div>`;
+}
+async function repairPicked(){
+  if(!fsPick) return;
+  if(!D.apiKey){ toast('⚠ Add your API key in Goals → Settings to auto-correct'); return; }
+  fsBusy=true; aiStatus="Working out the correct values…"; render();
+  try{
+    const fixed = await aiRepairEntry(fsPick);
+    fsPick = fixed; fsSource = "db";
+    const a = auditFood(fixed); fsAudit = a.ok ? null : a;
+    toast(fixed.repairNote ? '✓ '+fixed.repairNote : '✓ Corrected');
+  }catch(e){ toast('⚠ Could not auto-correct: '+String(e.message||e).slice(0,60)); }
+  fsBusy=false; aiStatus=""; render();
 }
 async function useMacroCalories(){
   if(!fsPick) return;
@@ -1769,13 +1816,15 @@ function foodResultsCard(){
       <span class="label" style="margin:0">Add food</span>${badge}
     </div>
     <div style="font-size:15px;font-weight:600">${esc(fsPick.name)}</div>
-    <div style="font-size:11.5px;color:var(--dim);margin:3px 0 10px">Per 100g: ${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
+    <div style="font-size:11.5px;color:var(--dim);margin:3px 0 4px">Per 100${esc(fsPick.unit||"g")}: ${fsPick.cal} cal · ${fsPick.p}P ${fsPick.c}C ${fsPick.f}F</div>
+    ${fsPick.aiRepaired?`<div style="font-size:11px;color:var(--green);margin-bottom:8px">✓ Corrected automatically${fsPick.repairNote?" — "+esc(fsPick.repairNote):""}</div>`:`<div style="margin-bottom:6px"></div>`}
     ${rawDataPanel()}
     ${fsAudit?`<div class="card2" style="border:1px solid var(--red);margin-bottom:10px">
       <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">⚠ This database entry looks wrong</div>
       <div style="font-size:11.5px;color:var(--dim);line-height:1.5">${fsAudit.issues.map(esc).join("<br>")}</div>
       <div style="font-size:11px;color:var(--faint);margin-top:6px">Open Food Facts is crowd-sourced, so entries can be incomplete or mis-entered. Check the packet and correct the numbers after adding, or fix them below.</div>
-      ${fsAudit.macroCal?`<button class="btn btn-ghost" style="margin-top:8px;font-size:12.5px" onclick="useMacroCalories()">Use ${fsAudit.macroCal} cal (calculated from the macros)</button>`:""}
+      <button class="btn btn-w" style="margin-top:8px;font-size:12.5px" onclick="repairPicked()">✨ Work out the correct values automatically</button>
+      ${fsAudit.macroCal?`<button class="btn btn-ghost" style="margin-top:6px;font-size:12.5px" onclick="useMacroCalories()">Or use ${fsAudit.macroCal} cal (from the macros)</button>`:""}
     </div>`:""}
     ${(()=>{ const sg=fsPick.servingGrams||0, sl=fsPick.servingLabel||"1 serving";
       const opts = sg ? [[sg, sl+" ("+sg+"g)"],[Math.round(sg/2), "Half ("+Math.round(sg/2)+"g)"],[100,"100g"]] : [[100,"100g"],[150,"150g"],[200,"200g"]];
@@ -1912,30 +1961,41 @@ async function onScanned(code){
     const hit = await offLookupBarcode(code);
     if(hit){
       fsSource="db";
-      const audit = auditFood(hit);
-      if(!audit.ok){
-        // Suspect database entry — show it instead of silently logging bad numbers.
-        fsResults=[hit]; fsPick=hit; fsAudit=audit;
+      let audit = auditFood(hit);
+      let item = hit;
+      if(!audit.ok && D.apiKey){
+        // Suspect entry — have the AI work out the real per-100 figures and pack size.
+        aiStatus = "Database entry looks wrong — checking…"; render();
+        try{
+          const fixed = await aiRepairEntry(hit);
+          const a2 = auditFood(fixed);
+          if(a2.ok){ item = fixed; audit = a2; }
+        }catch(e){ /* keep the original and let the user review */ }
+      }
+      if(!auditFood(item).ok){
+        fsResults=[item]; fsPick=item; fsAudit=auditFood(item);
         fsBusy=false; aiStatus=""; page='log'; render();
         return;
       }
       fsAudit=null;
+      const hitFixed = item;
       // We know the pack/serving size from the database — log it straight away.
-      const grams = hit.autoAmount || 100;
+      const grams = hitFixed.autoAmount || hitFixed.servingGrams || 100;
       const k = grams/100;
-      const s = {cal:Math.round(hit.cal*k), p:Math.round(hit.p*k*10)/10, c:Math.round(hit.c*k*10)/10,
-                 f:Math.round(hit.f*k*10)/10, sugar:Math.round(hit.sugar*k*10)/10, satFat:Math.round(hit.satFat*k*10)/10};
+      const s = {cal:Math.round(hitFixed.cal*k), p:Math.round(hitFixed.p*k*10)/10, c:Math.round(hitFixed.c*k*10)/10,
+                 f:Math.round(hitFixed.f*k*10)/10, sugar:Math.round(hitFixed.sugar*k*10)/10, satFat:Math.round(hitFixed.satFat*k*10)/10};
       const date = logTargetDate || todayISO();
-      const entry = {date, ts:Date.now(), name:hit.name, serving:hit.autoLabel||(grams+(hit.unit||"g")), ...s};
+      const label = hitFixed.autoLabel || hitFixed.servingLabel || (grams+(hitFixed.unit||"g"));
+      const entry = {date, ts:Date.now(), name:hitFixed.name, serving:label, ...s};
       D.foods.push(entry);
-      const key = hit.name.toLowerCase().trim();
+      const key = hitFixed.name.toLowerCase().trim();
       if(key && !D.library[key]) D.library[key] = {...s, serving:entry.serving};
       lastScannedIdx = D.foods.length-1;
       await save();
       fsBusy=false; aiStatus=""; fsResults=null; fsPick=null;
       page='nutrition'; foodDate = date;
       render();
-      undoToast(`✓ ${hit.name} · ${entry.serving} · ${s.cal} cal (${hit.cal}/100${hit.unit||"g"})`, undoScanAdd);
+      undoToast(`✓ ${hitFixed.name} · ${entry.serving} · ${s.cal} cal${hitFixed.aiRepaired?" (corrected)":""}`, undoScanAdd);
       return;
     }
     else { fsError = `Barcode ${code} isn't in the food database. Try typing the product name instead.`; }
@@ -1982,7 +2042,7 @@ async function setGoal(){
 }
 async function testAPI(){
   const out = $('diag'); const log = s => out.innerHTML += s+"<br>";
-  out.innerHTML = "Running diagnostics (app v57)…<br>";
+  out.innerHTML = "Running diagnostics (app v58)…<br>";
   log("• Key saved: " + (D.apiKey ? "yes (starts "+esc(D.apiKey.slice(0,8))+"…, length "+D.apiKey.length+")" : "<span style='color:var(--red)'>NO — paste it above and hit Save settings</span>"));
   if(!D.apiKey) return;
   log("• Checking model…");
